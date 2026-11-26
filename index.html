@@ -291,6 +291,7 @@ async function showCustomer(id){
  actions.append(archiveButton);
  if(archiveButton.disabled)box.append(node("p","Arxivlash uchun qoldiq 0 bo'lishi kerak.","muted"));
  }
+ actions.append(button("Mijoz hisoboti",()=>customerReport(c.customer_id),"secondary"));
  box.append(actions,node("h3","Operatsiyalar tarixi"));
  const history=node("div","Yuklanmoqda...");
  box.append(history);
@@ -520,7 +521,33 @@ async function showReports(){
  }catch(err){result.textContent=err.message||String(err);}finally{run.disabled=false;}};f.requestSubmit();
  }catch(err){result.textContent=err.message||String(err);}
 }
-el('showReports').onclick=showReports;
+function reportMenu(){const b=modal('Hisobotlar');b.append(button('Umumiy hisobot',showReports,'full'),button('Mijoz hisoboti',()=>customerReport(),'green full'));}
+function customerReport(initial){
+ const box=modal('Mijoz hisoboti'),root=node('div','');box.append(root);el('modal').classList.add('reportWide');
+ root.innerHTML=`<form><label>Mijozni qidirish</label><input name="search" placeholder="Ism yoki telefon"><label>Mijoz</label><select name="customer" required></select><label>Davr</label><select name="period"><option value="all">Barcha tarix</option><option value="today">Bugun</option><option value="yesterday">Kecha</option><option value="week">Shu hafta</option><option value="month">Shu oy</option><option value="custom">Ixtiyoriy</option></select><div class="grid" hidden><label>Boshlanish<input type="date" name="start"></label><label>Tugash<input type="date" name="end"></label></div><button class="full">Hisobotni ko'rish</button></form>`;
+ const f=root.querySelector('form'),e=f.elements,run=f.querySelector('button'),result=node('div','');root.append(result);
+ const list=[...customers,...archivedCustomers].sort((a,b)=>a.full_name.localeCompare(b.full_name));
+ function choices(id){const q=e.search.value.trim().toLowerCase();e.customer.replaceChildren(new Option('Mijozni tanlang',''));for(const c of list.filter(c=>(c.full_name+' '+(c.phone||'')).toLowerCase().includes(q)))e.customer.append(new Option(c.full_name+' | '+(c.phone||'')+(c.archived?' (arxiv)':''),c.customer_id));e.customer.value=id||'';}
+ choices(initial);e.search.oninput=()=>choices(e.customer.value);
+ function preset(){const all=e.period.value==='all';e.start.parentElement.parentElement.hidden=all;e.start.required=e.end.required=!all;if(all||e.period.value==='custom')return;let t=reportDate(),s=t,z=t;switch(e.period.value){case 'yesterday':s=z=shiftDay(t,-1);break;case 'week':s=shiftDay(t,-((new Date(t+'T00:00:00Z').getUTCDay()+6)%7));break;case 'month':s=t.slice(0,7)+'-01';}e.start.value=s;e.end.value=z;}
+ e.period.onchange=preset;e.start.onchange=e.end.onchange=()=>e.period.value='custom';preset();f.oninput=()=>result.replaceChildren();
+ f.onsubmit=async ev=>{ev.preventDefault();run.disabled=true;result.textContent='Yuklanmoqda...';const id=e.customer.value,c=list.find(x=>x.customer_id===id),all=e.period.value==='all',start=e.start.value,end=e.end.value;try{
+ if(!c)throw Error('Mijozni tanlang.');if(!all&&(!start||!end||start>end))throw Error('Sanalar noto‘g‘ri.');
+ const lo=all?-Infinity:Date.parse(start+'T00:00:00+05:00'),hi=all?Infinity:Date.parse(shiftDay(end,1)+'T00:00:00+05:00');
+ const [bs,ps]=await Promise.all([read('branches','id,name'),read('profiles','id,full_name')]);const bm=new Map(bs.map(x=>[x.id,x.name])),pm=new Map(ps.map(x=>[x.id,x.full_name]));
+ let opening=0,debt=0,paid=0,cancelled=0;const rows=[];for(let i=0;;i+=500){let q=db.from('transactions').select('id,branch_id,employee_id,type,amount,created_at,cancelled,cancel_reason').eq('customer_id',id).order('created_at').order('id').range(i,i+499);if(!all)q=q.lt('created_at',shiftDay(end,1)+'T00:00:00+05:00');const {data,error}=await q;if(error)throw error;for(const t of data){const ts=Date.parse(t.created_at),a=Number(t.amount),delta=t.cancelled?0:t.type==='debt'?a:t.type==='payment'?-a:0;if(ts<lo){opening+=delta;continue;}if(ts>=hi)continue;rows.push(t);}if(data.length<500)break;}
+ let balance=opening;const details=[['Sana (Toshkent)','Do‘kon','Admin','Tur','Summa','Qoldiq','Holat','Bekor qilish sababi']];for(const t of rows){const a=Number(t.amount);if(t.cancelled)cancelled++;else if(t.type==='debt'){debt+=a;balance+=a;}else if(t.type==='payment'){paid+=a;balance-=a;}details.push([new Date(t.created_at).toLocaleString('ru-RU',{timeZone:'Asia/Tashkent'}),bm.get(t.branch_id)||'',pm.get(t.employee_id)||'',t.type==='debt'?'Qarz':t.type==='payment'?'To‘lov':t.type,a,balance,t.cancelled?'Bekor qilingan':'Faol',t.cancel_reason||'']);}
+ if(!root.isConnected||!el('modal').open)return;const period=all?'Barcha tarix':start+' — '+end;const summary=[['Mijoz',c.full_name],['Telefon',c.phone||''],['Davr',period],['Boshlang‘ich qoldiq',opening],['Jami qarz',debt],['Jami to‘lov',paid],['Yakuniy qoldiq',balance],['Bekor qilingan',cancelled]];
+ result.replaceChildren();const printable=node('div','');printable.append(node('h2','UDUM QARZ — Mijoz hisoboti'),node('h3',c.full_name),node('p',(c.phone||'')+' | '+period+' | Toshkent vaqti'));const grid=node('div','','grid');for(const [k,v] of summary.slice(3)){const s=node('div','','stat');s.append(node('small',k),node('strong',k==='Bekor qilingan'?String(v):money(v)));grid.append(s);}printable.append(grid);
+ function table(a){const wrap=node('div','','reportScroll'),tab=node('table','','reportTable');a.forEach((r,i)=>{const tr=node('tr','');r.forEach(v=>tr.append(node(i?'td':'th',String(v??''))));tab.append(tr);});wrap.append(tab);return wrap;}
+ printable.append(node('h3','Operatsiyalar'),table(details));result.append(printable);
+ result.append(button('Excel (.xlsx) yuklab olish',()=>{try{if(!window.XLSX)throw Error('Excel kutubxonasi yuklanmadi.');const w=XLSX.utils.book_new();for(const [name,a] of [['Jami',summary],['Operatsiyalar',details]]){const sh=XLSX.utils.aoa_to_sheet(a);sh['!cols']=a[0].map((_,i)=>({wch:Math.min(45,Math.max(15,...a.slice(0,100).map(r=>String(r[i]??'').length+2)))}));XLSX.utils.book_append_sheet(w,sh,name);}XLSX.writeFile(w,'UDUM-mijoz-hisobot.xlsx');}catch(err){alert(err.message);}},'green full'));
+ result.append(button('PDF / Chop etish',()=>{const p=window.open('','_blank');if(!p){alert('Yangi oyna ochilishiga ruxsat bering.');return;}p.document.title='UDUM QARZ — Mijoz hisoboti';const style=p.document.createElement('style');style.textContent='body{font:12px Arial;color:#183638;padding:15px}h2{color:#087f8c}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:15px 0}.stat{border:1px solid #ddd;padding:8px;break-inside:avoid}.stat strong{display:block;font-size:15px}table{width:100%;border-collapse:collapse;font-size:10px}td,th{border:1px solid #ddd;padding:5px;overflow-wrap:anywhere}th{background:#e1eeee}tr{break-inside:avoid}@page{size:A4 landscape;margin:12mm}';p.document.head.append(style);p.document.body.append(p.document.importNode(printable,true));p.focus();p.print();},'full'));
+ }catch(err){result.textContent=err.message||String(err);}finally{run.disabled=false;}};
+ if(initial&&e.customer.value)f.requestSubmit();
+}
+el('showReports').onclick=reportMenu;
+
 
  init();
 </script>
