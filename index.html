@@ -115,6 +115,8 @@ const db=supabase.createClient(
 const el=id=>document.getElementById(id);
 let customers=[],branches=[],archivedCustomers=[];
 let archiveMode=false;
+let profile=null;
+const admin=()=>profile?.role==="admin";
 const money=n=>Number(n||0).toLocaleString("ru-RU")+" so'm";
 
 function node(tag,text,cls){
@@ -158,13 +160,23 @@ async function read(table,columns){
 }
 async function checkUser(user){
  const {data,error}=await db.from("profiles")
- .select("full_name,role,active")
+ .select("full_name,role,active,branch_id")
  .eq("id",user.id).single();
- if(error||!data||!data.active||data.role!=="admin"){
+ if(error||!data||!data.active||!["admin","employee"].includes(data.role)){
  await db.auth.signOut();
  throw new Error("Kirish huquqi mavjud emas.");
  }
- el("welcome").textContent=data.full_name;
+ profile={...data,id:user.id};
+ if(!admin()){
+ const {data:b,error:be}=await db.from("branches").select("name,active").eq("id",profile.branch_id).single();
+ if(be||!b?.active){await db.auth.signOut();throw Error("Faol do'kon biriktirilmagan.");}
+ profile.branchName=b.name;
+ }
+ el("welcome").textContent=data.full_name+(admin()?" · Admin":" · "+profile.branchName);
+ for(const id of ["showBranches","showAudit","archiveList"])el(id).hidden=!admin();
+ el("showReports").textContent=admin()?"Hisobotlar":"Mening kunlik hisobotim";
+ el("showReports").onclick=admin()?reportMenu:dailyReport;
+ el("balance").parentElement.parentElement.hidden=!admin();
  el("login").hidden=true;
  el("dashboard").hidden=false;
  el("logout").hidden=false;
@@ -282,17 +294,17 @@ async function showCustomer(id){
  button("+ Qarz",()=>transaction(c,"debt")),
  button("+ To'lov",()=>transaction(c,"payment"),"green")
  );
- if(c.archived){
+ if(admin()&&c.archived){
  actions.append(button("Arxivdan qaytarish",()=>changeArchive(c,false),"green"));
  box.append(node("p","Arxivlangan mijoz","muted"));
- }else{
+ }else if(admin()){
  actions.append(button("Tahrirlash",()=>editCustomer(c),"secondary"));
  const archiveButton=button("Arxivlash",()=>changeArchive(c,true),"secondary");
  archiveButton.disabled=Number(c.balance)!==0;
  actions.append(archiveButton);
  if(archiveButton.disabled)box.append(node("p","Arxivlash uchun qoldiq 0 bo'lishi kerak.","muted"));
  }
- actions.append(button("Mijoz hisoboti",()=>customerReport(c.customer_id),"secondary"));
+ if(admin())actions.append(button("Mijoz hisoboti",()=>customerReport(c.customer_id),"secondary"));
  box.append(actions,node("h3","Operatsiyalar tarixi"));
  const history=node("div","Yuklanmoqda...");
  box.append(history);
@@ -310,11 +322,11 @@ async function showCustomer(id){
  r.append(node("b",(t.type==="debt"?"Qarz":t.type==="payment"?"To'lov":t.type)+" — "+money(t.amount)),
  node("small",t.branch_name+" | "+new Date(t.created_at).toLocaleString("ru-RU")),
  node("p",t.cancelled?"Bekor qilingan":"Cheklar: "+t.receipt_count,"muted"));
- if(!t.cancelled&&!c.archived){
+ if(!t.cancelled&&!c.archived&&(admin()||t.employee_id===profile.id)){
  r.append(button("Chek biriktirish",()=>receipt(t.transaction_id,id),"small secondary"));
  const cancel=button("Bekor qilish",()=>cancelOperation(t.transaction_id,id),"small secondary");
  cancel.style.color="#b91c1c";
- r.append(cancel);
+ if(admin()||reportDate(new Date(t.created_at))===reportDate())r.append(cancel);
  }
  if(Number(t.receipt_count)>0)r.append(button("Chekni ko'rish",()=>viewReceipts(t.transaction_id,id),"small secondary"));
  history.append(r);
@@ -335,8 +347,11 @@ function transaction(c,type){
  <input name="due" type="date">
  <button class="full">Saqlash</button>`;
  const select=form.elements.branch;
+ if(admin()){
  select.append(new Option("Do'konni tanlang",""));
  for(const b of branches)select.append(new Option(b.name,b.id));
+ }else{select.append(new Option(profile.branchName,profile.branch_id));select.disabled=true;}
+
  box.append(form);
  form.onsubmit=async e=>{
  e.preventDefault();
@@ -349,7 +364,7 @@ function transaction(c,type){
  throw new Error("Summani to'g'ri kiriting.");
  await rpc("add_transaction",{
  p_customer_id:c.customer_id,
- p_branch_id:f.get("branch"),
+ p_branch_id:admin()?f.get("branch"):null,
  p_type:type,
  p_amount:amount,
  p_order_id:null,
@@ -503,27 +518,29 @@ function reportDay(d=new Date()){return new Intl.DateTimeFormat('en-CA',{timeZon
 function reportDate(d=new Date()){const p=reportDay(d);return `${p.year}-${p.month}-${p.day}`;}
 function shiftDay(s,n){const d=new Date(s+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
 async function showReports(){
+ if(!admin())return;
  const box=modal('Hisobotlar'); const root=node('div','');box.append(root);el('modal').classList.add('reportWide');
- root.innerHTML=`<form><label>Davr</label><select name="period"><option value="today">Bugun</option><option value="yesterday">Kecha</option><option value="week">Shu hafta</option><option value="month" selected>Shu oy</option><option value="custom">Ixtiyoriy</option></select><div class="grid"><label>Boshlanish<input type="date" name="start" required></label><label>Tugash<input type="date" name="end" required></label></div><label>Do'kon</label><select name="branch"><option value="">Barcha do'konlar</option></select><label>Admin</label><select name="employee"><option value="">Barcha adminlar</option></select><label>Operatsiya</label><select name="type"><option value="">Barchasi</option><option value="debt">Qarz</option><option value="payment">To'lov</option></select><button class="full" disabled>Hisobotni ko'rish</button></form>`;
+ root.innerHTML=`<form><label>Davr</label><select name="period"><option value="today">Bugun</option><option value="yesterday">Kecha</option><option value="week">Shu hafta</option><option value="month" selected>Shu oy</option><option value="custom">Ixtiyoriy</option></select><div class="grid"><label>Boshlanish<input type="date" name="start" required></label><label>Tugash<input type="date" name="end" required></label></div><label>Do'kon</label><select name="branch"><option value="">Barcha do'konlar</option></select><label>Xodim / admin</label><select name="employee"><option value="">Barcha xodimlar va adminlar</option></select><label>Operatsiya</label><select name="type"><option value="">Barchasi</option><option value="debt">Qarz</option><option value="payment">To'lov</option></select><button class="full" disabled>Hisobotni ko'rish</button></form>`;
  const f=root.querySelector('form'), e=f.elements, run=f.querySelector('button'), result=node('div','');root.append(result);
  const preset=()=>{const t=reportDate();let s=t,z=t;switch(e.period.value){case 'yesterday':s=z=shiftDay(t,-1);break;case 'week':s=shiftDay(t,-((new Date(t+'T00:00:00Z').getUTCDay()+6)%7));break;case 'month':s=t.slice(0,7)+'-01';break;case 'custom':return;}e.start.value=s;e.end.value=z;};preset();e.period.onchange=preset;e.start.onchange=e.end.onchange=()=>e.period.value='custom';
  try{
  const [bs,ps,cs]=await Promise.all([read('branches','id,name'),read('profiles','id,full_name,role'),read('customers','id,full_name')]);if(!root.isConnected)return;
  const bm=new Map(bs.map(x=>[x.id,x.name])),pm=new Map(ps.map(x=>[x.id,x.full_name])),cm=new Map(cs.map(x=>[x.id,x.full_name]));
- bs.forEach(x=>e.branch.append(new Option(x.name,x.id)));ps.filter(x=>x.role==='admin').forEach(x=>e.employee.append(new Option(x.full_name,x.id)));run.disabled=false;
+ bs.forEach(x=>e.branch.append(new Option(x.name,x.id)));ps.forEach(x=>e.employee.append(new Option(x.full_name,x.id)));run.disabled=false;
  f.onsubmit=async ev=>{ev.preventDefault();run.disabled=true;result.textContent='Yuklanmoqda...';const start=e.start.value,end=e.end.value,branch=e.branch.value,employee=e.employee.value,type=e.type.value;
  try{if(start>end)throw Error('Sanalar noto‘g‘ri.');const rows=[];for(let i=0;;i+=500){let q=db.from('transactions').select('id,customer_id,branch_id,employee_id,type,amount,created_at,cancelled,cancel_reason').gte('created_at',start+'T00:00:00+05:00').lt('created_at',shiftDay(end,1)+'T00:00:00+05:00').order('created_at').order('id').range(i,i+499);if(branch)q=q.eq('branch_id',branch);if(employee)q=q.eq('employee_id',employee);if(type)q=q.eq('type',type);const {data,error}=await q;if(error)throw error;rows.push(...data);if(data.length<500)break;}
  if(!root.isConnected)return;let debt=0,paid=0,cancelled=0,active=0;const groups=new Map();for(const t of rows){const g=groups.get(t.branch_id)||[bm.get(t.branch_id)||t.branch_id,0,0,0,0];groups.set(t.branch_id,g);if(t.cancelled){cancelled++;g[4]++;continue;}active++;g[3]++;if(t.type==='debt'){debt+=Number(t.amount);g[1]+=Number(t.amount);}if(t.type==='payment'){paid+=Number(t.amount);g[2]+=Number(t.amount);}}
  result.replaceChildren(node('p',`${start} — ${end} | Toshkent vaqti`,'muted'));const grid=node('div','','grid');for(const [k,v] of [['Jami qarz',money(debt)],['Jami to‘lov',money(paid)],['Sof qarz o‘zgarishi',money(debt-paid)],['Faol operatsiyalar',active],['Bekor qilingan',cancelled]]){const s=node('div','','stat');s.append(node('small',k),node('strong',String(v)));grid.append(s);}result.append(grid);
- const summary=[['Do‘kon','Qarz','To‘lov','Faol','Bekor qilingan'],...groups.values()];const details=[['Sana (Toshkent)','Mijoz','Do‘kon','Admin','Tur','Summa','Holat','Bekor qilish sababi'],...rows.map(t=>[new Date(t.created_at).toLocaleString('ru-RU',{timeZone:'Asia/Tashkent'}),cm.get(t.customer_id)||t.customer_id,bm.get(t.branch_id)||t.branch_id,pm.get(t.employee_id)||t.employee_id,t.type==='debt'?'Qarz':'To‘lov',Number(t.amount),t.cancelled?'Bekor qilingan':'Faol',t.cancel_reason||''])];
+ const summary=[['Do‘kon','Qarz','To‘lov','Faol','Bekor qilingan'],...groups.values()];const details=[['Sana (Toshkent)','Mijoz','Do‘kon','Xodim / admin','Tur','Summa','Holat','Bekor qilish sababi'],...rows.map(t=>[new Date(t.created_at).toLocaleString('ru-RU',{timeZone:'Asia/Tashkent'}),cm.get(t.customer_id)||t.customer_id,bm.get(t.branch_id)||t.branch_id,pm.get(t.employee_id)||t.employee_id,t.type==='debt'?'Qarz':'To‘lov',Number(t.amount),t.cancelled?'Bekor qilingan':'Faol',t.cancel_reason||''])];
  function table(a){const wrap=node('div','','reportScroll'),tab=node('table','','reportTable');a.forEach((r,i)=>{const tr=node('tr','');r.forEach(v=>tr.append(node(i?'td':'th',String(v??''))));tab.append(tr);});wrap.append(tab);return wrap;}
  result.append(node('h3','Do‘konlar kesimida'),table(summary),node('h3','Operatsiyalar'),table(details.slice(0,101)));if(rows.length>100)result.append(node('p','Ekranda 100 ta; Excelda barcha operatsiyalar.','muted'));
- result.append(button('Excel (.xlsx) yuklab olish',()=>{try{if(!window.XLSX)throw Error('Excel kutubxonasi yuklanmadi. Internetni tekshiring.');const w=XLSX.utils.book_new();const sheets=[['Jami',[['Davr',start,end],['Do‘kon',bm.get(branch)||'Barchasi'],['Admin',pm.get(employee)||'Barchasi'],['Tur',type||'Barchasi'],['Qarz',debt],['To‘lov',paid],['Sof o‘zgarish',debt-paid],['Faol',active],['Bekor qilingan',cancelled]]],['Dokonlar',summary],['Operatsiyalar',details]];for(const [name,a] of sheets){const sh=XLSX.utils.aoa_to_sheet(a);sh['!cols']=a[0].map((_,i)=>({wch:Math.min(45,Math.max(14,...a.slice(0,100).map(r=>String(r[i]??'').length+2)))}));XLSX.utils.book_append_sheet(w,sh,name);}XLSX.writeFile(w,`UDUM-hisobot-${start}-${end}.xlsx`);}catch(err){alert(err.message);}},'green full'));
+ result.append(button('Excel (.xlsx) yuklab olish',()=>{try{if(!window.XLSX)throw Error('Excel kutubxonasi yuklanmadi. Internetni tekshiring.');const w=XLSX.utils.book_new();const sheets=[['Jami',[['Davr',start,end],['Do‘kon',bm.get(branch)||'Barchasi'],['Xodim / admin',pm.get(employee)||'Barchasi'],['Tur',type||'Barchasi'],['Qarz',debt],['To‘lov',paid],['Sof o‘zgarish',debt-paid],['Faol',active],['Bekor qilingan',cancelled]]],['Dokonlar',summary],['Operatsiyalar',details]];for(const [name,a] of sheets){const sh=XLSX.utils.aoa_to_sheet(a);sh['!cols']=a[0].map((_,i)=>({wch:Math.min(45,Math.max(14,...a.slice(0,100).map(r=>String(r[i]??'').length+2)))}));XLSX.utils.book_append_sheet(w,sh,name);}XLSX.writeFile(w,`UDUM-hisobot-${start}-${end}.xlsx`);}catch(err){alert(err.message);}},'green full'));
  }catch(err){result.textContent=err.message||String(err);}finally{run.disabled=false;}};f.requestSubmit();
  }catch(err){result.textContent=err.message||String(err);}
 }
 function reportMenu(){const b=modal('Hisobotlar');b.append(button('Umumiy hisobot',showReports,'full'),button('Mijoz hisoboti',()=>customerReport(),'green full'));}
 function customerReport(initial){
+ if(!admin())return;
  const box=modal('Mijoz hisoboti'),root=node('div','');box.append(root);el('modal').classList.add('reportWide');
  root.innerHTML=`<form><label>Mijozni qidirish</label><input name="search" placeholder="Ism yoki telefon"><label>Mijoz</label><select name="customer" required></select><label>Davr</label><select name="period"><option value="all">Barcha tarix</option><option value="today">Bugun</option><option value="yesterday">Kecha</option><option value="week">Shu hafta</option><option value="month">Shu oy</option><option value="custom">Ixtiyoriy</option></select><div class="grid" hidden><label>Boshlanish<input type="date" name="start"></label><label>Tugash<input type="date" name="end"></label></div><button class="full">Hisobotni ko'rish</button></form>`;
  const f=root.querySelector('form'),e=f.elements,run=f.querySelector('button'),result=node('div','');root.append(result);
@@ -537,7 +554,7 @@ function customerReport(initial){
  const lo=all?-Infinity:Date.parse(start+'T00:00:00+05:00'),hi=all?Infinity:Date.parse(shiftDay(end,1)+'T00:00:00+05:00');
  const [bs,ps]=await Promise.all([read('branches','id,name'),read('profiles','id,full_name')]);const bm=new Map(bs.map(x=>[x.id,x.name])),pm=new Map(ps.map(x=>[x.id,x.full_name]));
  let opening=0,debt=0,paid=0,cancelled=0;const rows=[];for(let i=0;;i+=500){let q=db.from('transactions').select('id,branch_id,employee_id,type,amount,created_at,cancelled,cancel_reason').eq('customer_id',id).order('created_at').order('id').range(i,i+499);if(!all)q=q.lt('created_at',shiftDay(end,1)+'T00:00:00+05:00');const {data,error}=await q;if(error)throw error;for(const t of data){const ts=Date.parse(t.created_at),a=Number(t.amount),delta=t.cancelled?0:t.type==='debt'?a:t.type==='payment'?-a:0;if(ts<lo){opening+=delta;continue;}if(ts>=hi)continue;rows.push(t);}if(data.length<500)break;}
- let balance=opening;const details=[['Sana (Toshkent)','Do‘kon','Admin','Tur','Summa','Qoldiq','Holat','Bekor qilish sababi']];for(const t of rows){const a=Number(t.amount);if(t.cancelled)cancelled++;else if(t.type==='debt'){debt+=a;balance+=a;}else if(t.type==='payment'){paid+=a;balance-=a;}details.push([new Date(t.created_at).toLocaleString('ru-RU',{timeZone:'Asia/Tashkent'}),bm.get(t.branch_id)||'',pm.get(t.employee_id)||'',t.type==='debt'?'Qarz':t.type==='payment'?'To‘lov':t.type,a,balance,t.cancelled?'Bekor qilingan':'Faol',t.cancel_reason||'']);}
+ let balance=opening;const details=[['Sana (Toshkent)','Do‘kon','Xodim / admin','Tur','Summa','Qoldiq','Holat','Bekor qilish sababi']];for(const t of rows){const a=Number(t.amount);if(t.cancelled)cancelled++;else if(t.type==='debt'){debt+=a;balance+=a;}else if(t.type==='payment'){paid+=a;balance-=a;}details.push([new Date(t.created_at).toLocaleString('ru-RU',{timeZone:'Asia/Tashkent'}),bm.get(t.branch_id)||'',pm.get(t.employee_id)||'',t.type==='debt'?'Qarz':t.type==='payment'?'To‘lov':t.type,a,balance,t.cancelled?'Bekor qilingan':'Faol',t.cancel_reason||'']);}
  if(!root.isConnected||!el('modal').open)return;const period=all?'Barcha tarix':start+' — '+end;const summary=[['Mijoz',c.full_name],['Telefon',c.phone||''],['Davr',period],['Boshlang‘ich qoldiq',opening],['Jami qarz',debt],['Jami to‘lov',paid],['Yakuniy qoldiq',balance],['Bekor qilingan',cancelled]];
  result.replaceChildren();const printable=node('div','');printable.append(node('h2','UDUM QARZ — Mijoz hisoboti'),node('h3',c.full_name),node('p',(c.phone||'')+' | '+period+' | Toshkent vaqti'));const grid=node('div','','grid');for(const [k,v] of summary.slice(3)){const s=node('div','','stat');s.append(node('small',k),node('strong',k==='Bekor qilingan'?String(v):money(v)));grid.append(s);}printable.append(grid);
  function table(a){const wrap=node('div','','reportScroll'),tab=node('table','','reportTable');a.forEach((r,i)=>{const tr=node('tr','');r.forEach(v=>tr.append(node(i?'td':'th',String(v??''))));tab.append(tr);});wrap.append(tab);return wrap;}
@@ -552,16 +569,33 @@ el('showReports').onclick=reportMenu;
 
 function auditLabel(t){const a=String(t.action||'').toUpperCase(),o=t.old_data||{},n=t.new_data||{},create=['CREATE','INSERT'].includes(a);if(t.table_name==='customers'){if(create)return 'Yangi mijoz qo‘shildi';if(a==='UPDATE'){if(o.archived!==n.archived&&typeof n.archived==='boolean')return n.archived?'Mijoz arxivlandi':'Mijoz tiklandi';return 'Mijoz tahrirlandi';}}if(t.table_name==='transactions'){if((n.cancelled===true&&o.cancelled!==true)||a.includes('CANCEL'))return 'Operatsiya bekor qilindi';if(create)return n.type==='debt'?'Qarz yozildi':n.type==='payment'?'To‘lov olindi':'Operatsiya qo‘shildi';}if(t.table_name==='attachments'){if(a.includes('CONFIRM')||a==='UPDATE')return 'Chek ma’lumoti yangilandi';if(create||a.includes('PREPARE'))return 'Chek biriktirish boshlandi';}return t.table_name+' — '+a;}
 async function showAudit(){
+ if(!admin())return;
  const box=modal('Amallar tarixi'),root=node('div','');box.append(root);el('modal').classList.add('reportWide');
- root.innerHTML=`<form><label>Davr</label><select name="period"><option value="today">Bugun</option><option value="yesterday">Kecha</option><option value="week">Shu hafta</option><option value="month" selected>Shu oy</option><option value="custom">Ixtiyoriy</option></select><div class="grid"><label>Boshlanish<input name="start" type="date" required></label><label>Tugash<input name="end" type="date" required></label></div><label>Admin</label><select name="admin"><option value="">Barchasi</option></select><label>Amal turi</label><select name="action"><option value="">Barchasi</option></select><button class="full" disabled>Tarixni ko‘rish</button></form>`;
+ root.innerHTML=`<form><label>Davr</label><select name="period"><option value="today">Bugun</option><option value="yesterday">Kecha</option><option value="week">Shu hafta</option><option value="month" selected>Shu oy</option><option value="custom">Ixtiyoriy</option></select><div class="grid"><label>Boshlanish<input name="start" type="date" required></label><label>Tugash<input name="end" type="date" required></label></div><label>Xodim / admin</label><select name="admin"><option value="">Barchasi</option></select><label>Amal turi</label><select name="action"><option value="">Barchasi</option></select><button class="full" disabled>Tarixni ko‘rish</button></form>`;
  const f=root.querySelector('form'),e=f.elements,run=f.querySelector('button'),result=node('div','');root.append(result);const preset=()=>{const today=reportDate();let start=today,end=today;switch(e.period.value){case 'yesterday':start=end=shiftDay(today,-1);break;case 'week':start=shiftDay(today,-((new Date(today+'T00:00:00Z').getUTCDay()+6)%7));break;case 'month':start=today.slice(0,7)+'-01';break;case 'custom':return;}e.start.value=start;e.end.value=end;};preset();e.period.onchange=preset;e.start.onchange=e.end.onchange=()=>e.period.value='custom';
  try{const [ps,cs,ts]=await Promise.all([read('profiles','id,full_name'),read('customers','id,full_name'),read('transactions','id,customer_id,amount,type')]);if(!root.isConnected)return;const pm=new Map(ps.map(x=>[x.id,x.full_name])),cm=new Map(cs.map(x=>[x.id,x.full_name])),tm=new Map(ts.map(x=>[x.id,x]));ps.forEach(x=>e.admin.append(new Option(x.full_name,x.id)));let rows=[];
- function render(){const selected=rows.filter(t=>!e.action.value||auditLabel(t)===e.action.value);result.replaceChildren(node('p',`Jami: ${selected.length} ta amal | Toshkent vaqti`));const headers=['Sana','Admin','Amal','Mijoz','Summa','Sabab','Oldingi ma’lumot','Yangi ma’lumot','Yozuv ID'];const details=selected.map(t=>{const n=t.new_data||{},o=t.old_data||{},tr=tm.get(t.table_name==='transactions'?t.record_id:n.transaction_id||o.transaction_id)||{};const cid=t.table_name==='customers'?t.record_id:n.customer_id||o.customer_id||tr.customer_id;return [new Date(t.created_at).toLocaleString('ru-RU',{timeZone:'Asia/Tashkent'}),pm.get(t.employee_id)||t.employee_id||'',auditLabel(t),n.full_name||o.full_name||cm.get(cid)||'',n.amount??o.amount??tr.amount??'',t.reason||n.cancel_reason||'',JSON.stringify(t.old_data??null),JSON.stringify(t.new_data??null),t.record_id||''];});
+ function render(){const selected=rows.filter(t=>!e.action.value||auditLabel(t)===e.action.value);result.replaceChildren(node('p',`Jami: ${selected.length} ta amal | Toshkent vaqti`));const headers=['Sana','Xodim / admin','Amal','Mijoz','Summa','Sabab','Oldingi ma’lumot','Yangi ma’lumot','Yozuv ID'];const details=selected.map(t=>{const n=t.new_data||{},o=t.old_data||{},tr=tm.get(t.table_name==='transactions'?t.record_id:n.transaction_id||o.transaction_id)||{};const cid=t.table_name==='customers'?t.record_id:n.customer_id||o.customer_id||tr.customer_id;return [new Date(t.created_at).toLocaleString('ru-RU',{timeZone:'Asia/Tashkent'}),pm.get(t.employee_id)||t.employee_id||'',auditLabel(t),n.full_name||o.full_name||cm.get(cid)||'',n.amount??o.amount??tr.amount??'',t.reason||n.cancel_reason||'',JSON.stringify(t.old_data??null),JSON.stringify(t.new_data??null),t.record_id||''];});
  for(const r of details.slice(0,100)){const card=node('div','','customer');card.append(node('b',r[2]+' | '+r[1]),node('small',r[0]),node('p',[r[3],r[4]===''?'':money(r[4]),r[5]].filter(Boolean).join(' | ')));const d=node('details','');d.append(node('summary','Tafsilotlar'));for(const [k,v] of [['Oldingi ma’lumot',r[6]],['Yangi ma’lumot',r[7]],['Yozuv ID',r[8]]]){const p=node('pre',v);p.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere';d.append(node('b',k),p);}card.append(d);result.append(card);}if(details.length>100)result.append(node('p','Ekranda 100 ta; Excelda barcha natijalar.','muted'));result.append(button('Excel (.xlsx) yuklab olish',()=>{try{const w=XLSX.utils.book_new(),s=XLSX.utils.aoa_to_sheet([headers,...details]);s['!cols']=headers.map(()=>({wch:25}));XLSX.utils.book_append_sheet(w,s,'Amallar');XLSX.writeFile(w,'UDUM-amallar-tarixi.xlsx');}catch(err){alert(err.message);}},'green full'));}
  e.action.onchange=render;f.onsubmit=async ev=>{ev.preventDefault();run.disabled=true;e.action.disabled=true;result.textContent='Yuklanmoqda...';try{const start=e.start.value,end=e.end.value,admin=e.admin.value;if(start>end)throw Error('Sanalar noto‘g‘ri.');const found=[];for(let i=0;;i+=500){let q=db.from('audit_logs').select('id,employee_id,table_name,record_id,action,old_data,new_data,reason,created_at').gte('created_at',start+'T00:00:00+05:00').lt('created_at',shiftDay(end,1)+'T00:00:00+05:00').order('created_at',{ascending:false}).order('id').range(i,i+499);if(admin)q=q.eq('employee_id',admin);const {data,error}=await q;if(error)throw error;found.push(...data);if(data.length<500)break;}if(!root.isConnected)return;rows=found;e.action.replaceChildren(new Option('Barchasi',''));for(const a of [...new Set(rows.map(auditLabel))].sort())e.action.append(new Option(a,a));render();}catch(err){result.textContent=err.message||String(err);}finally{run.disabled=false;e.action.disabled=false;}};run.disabled=false;f.requestSubmit();}catch(err){result.textContent=err.message||String(err);}
 }
 el('showAudit').onclick=showAudit;
 
+async function dailyReport(){
+ const box=modal('Mening kunlik hisobotim');el('modal').classList.add('reportWide');
+ const day=reportDate(), who=profile.id, root=node('div','Yuklanmoqda...');box.append(root);
+ try{
+ const rows=[];
+ for(let i=0;;i+=500){const {data,error}=await db.from('transactions').select('id,customer_id,branch_id,type,amount,created_at,cancelled').eq('employee_id',who).gte('created_at',day+'T00:00:00+05:00').lt('created_at',shiftDay(day,1)+'T00:00:00+05:00').order('created_at').order('id').range(i,i+499);if(error)throw error;rows.push(...data);if(data.length<500)break;}
+ const [cs,bs]=await Promise.all([read('customers','id,full_name'),read('branches','id,name')]);
+ if(!root.isConnected||!el('modal').open)return;
+ const cm=new Map(cs.map(c=>[c.id,c.full_name])),bm=new Map(bs.map(b=>[b.id,b.name]));
+ let debt=0,paid=0,cancelled=0;for(const t of rows){if(t.cancelled)cancelled++;else if(t.type==='debt')debt+=Number(t.amount);else if(t.type==='payment')paid+=Number(t.amount);}
+ const summary=[['Sana',day],['Xodim',profile.full_name],['Joriy do‘kon',profile.branchName],['Qarz',debt],['To‘lov',paid],['Sof o‘zgarish',debt-paid],['Faol operatsiyalar',rows.length-cancelled],['Bekor qilingan',cancelled]];
+ const details=[['Vaqt (Toshkent)','Mijoz','Do‘kon','Tur','Summa','Holat'],...rows.map(t=>[new Date(t.created_at).toLocaleString('ru-RU',{timeZone:'Asia/Tashkent'}),cm.get(t.customer_id)||t.customer_id,bm.get(t.branch_id)||t.branch_id,t.type==='debt'?'Qarz':'To‘lov',Number(t.amount),t.cancelled?'Bekor qilingan':'Faol'])];
+ root.replaceChildren();const printable=node('div','');printable.append(node('h2','UDUM QARZ — Kunlik hisobot'),node('p',day+' | '+profile.full_name+' | '+profile.branchName+' | Toshkent vaqti'));const grid=node('div','','grid');for(const [k,v] of summary.slice(3)){const st=node('div','','stat');st.append(node('small',k),node('strong',k.includes('operatsiyalar')||k==='Bekor qilingan'?String(v):money(v)));grid.append(st);}printable.append(grid);const wrap=node('div','','reportScroll'),tab=node('table','','reportTable');details.forEach((r,i)=>{const tr=node('tr','');r.forEach(v=>tr.append(node(i?'td':'th',String(v))));tab.append(tr);});wrap.append(tab);printable.append(wrap);root.append(printable);
+ root.append(button('Excel (.xlsx)',()=>{try{const w=XLSX.utils.book_new();for(const [n,a] of [['Jami',summary],['Operatsiyalar',details]])XLSX.utils.book_append_sheet(w,XLSX.utils.aoa_to_sheet(a),n);XLSX.writeFile(w,'UDUM-kunlik-'+day+'.xlsx');}catch(e){alert(e.message);}},'green full'),button('PDF / Chop etish',()=>{const p=window.open('','_blank');if(!p)return alert('Yangi oynaga ruxsat bering.');const st=p.document.createElement('style');st.textContent='body{font:12px Arial}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px}.stat strong{display:block}';p.document.head.append(st);p.document.body.append(p.document.importNode(printable,true));p.print();},'full'));
+ }catch(e){root.textContent=e.message;}
+}
 init();
 </script>
 </body>
