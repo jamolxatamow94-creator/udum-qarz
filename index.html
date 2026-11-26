@@ -444,6 +444,57 @@ showCustomer=async function(id){
     }
   });
 };
+async function cancelOperation(transactionId, customerId){
+  const reason=prompt("Bekor qilish sababini yozing:");
+
+  if(!reason || !reason.trim())return;
+
+  if(!confirm("Operatsiyani bekor qilishni tasdiqlaysizmi?"))return;
+
+  try{
+    await rpc("cancel_transaction",{
+      p_transaction_id:transactionId,
+      p_reason:reason.trim()
+    });
+
+    alert("Operatsiya bekor qilindi.");
+    location.reload();
+
+  }catch(e){
+    alert("Xatolik: "+e.message);
+  }
+}
+
+const previousShowCustomer=showCustomer;
+
+showCustomer=async function(id){
+  await previousShowCustomer(id);
+
+  const {data,error}=await db.from("customer_history")
+    .select("*")
+    .eq("customer_id",id)
+    .order("created_at",{ascending:false})
+    .limit(100);
+
+  if(error)return;
+
+  const rows=el("modalBody")
+    .querySelectorAll(".customer");
+
+  data.forEach((t,i)=>{
+    if(rows[i]&&!t.cancelled){
+      const b=button(
+        "Bekor qilish",
+        ()=>cancelOperation(t.transaction_id,id),
+        "small secondary"
+      );
+
+      b.style.color="#b91c1c";
+      b.style.marginTop="8px";
+      rows[i].append(b);
+    }
+  });
+};
  init();
 </script>
 </body>
