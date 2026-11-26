@@ -378,7 +378,73 @@ async function init(){
  catch(e){errorMessage(e)}
  }
 }
-init();
+async function viewReceipts(transactionId, customerId){
+  const box=modal("Biriktirilgan cheklar");
+
+  box.append(button("← Orqaga",
+    ()=>showCustomer(customerId),"secondary"));
+
+  try{
+    const {data,error}=await db.from("attachments")
+      .select("file_path,file_name,note")
+      .eq("transaction_id",transactionId)
+      .eq("archived",false);
+
+    if(error)throw error;
+
+    if(!data.length){
+      box.append(node("p","Cheklar mavjud emas."));
+      return;
+    }
+
+    for(const a of data){
+      const {data:url,error:err}=await db.storage
+        .from("receipts")
+        .createSignedUrl(a.file_path,300);
+
+      if(err)throw err;
+
+      const img=document.createElement("img");
+      img.src=url.signedUrl;
+      img.style.width="100%";
+      img.style.borderRadius="12px";
+      img.style.marginTop="12px";
+      box.append(img);
+
+      if(a.note)box.append(node("p",a.note));
+    }
+  }catch(e){
+    el("modalMessage").textContent=e.message;
+  }
+}
+
+const originalShowCustomer=showCustomer;
+
+showCustomer=async function(id){
+  await originalShowCustomer(id);
+
+  const {data,error}=await db.from("customer_history")
+    .select("*")
+    .eq("customer_id",id)
+    .order("created_at",{ascending:false})
+    .limit(100);
+
+  if(error)return;
+
+  const rows=el("modalBody")
+    .querySelectorAll(".customer");
+
+  data.forEach((t,i)=>{
+    if(rows[i]&&Number(t.receipt_count)>0){
+      rows[i].append(button(
+        "Chekni ko'rish",
+        ()=>viewReceipts(t.transaction_id,id),
+        "small secondary"
+      ));
+    }
+  });
+};
+ init();
 </script>
 </body>
 </html>
