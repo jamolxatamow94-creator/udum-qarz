@@ -89,6 +89,7 @@ footer{text-align:center;color:#718586;padding:20px;font-size:13px}
 <button id="newCustomer">+ Yangi mijoz</button>
 <button id="showReports" class="green">Hisobotlar</button>
 <button id="showBranches" class="secondary">Do'konlar</button>
+<button id="showAudit" style="background:#345b91">Amallar tarixi</button>
 </div>
 <div class="card">
 <div class="line"><h3>Mijozlar</h3><button id="archiveList" class="small secondary">Arxiv (0)</button></div>
@@ -549,7 +550,19 @@ function customerReport(initial){
 el('showReports').onclick=reportMenu;
 
 
- init();
+ function auditLabel(t){const a=String(t.action||'').toUpperCase(),o=t.old_data||{},n=t.new_data||{};if(t.table_name==='customers'){if(a==='INSERT')return 'Yangi mijoz';if(a==='UPDATE'){if(o.archived!==n.archived&&typeof n.archived==='boolean')return n.archived?'Arxivlash':'Arxivdan qaytarish';return 'Mijozni tahrirlash';}}if(t.table_name==='transactions'){if(n.cancelled===true&&o.cancelled!==true||a.includes('CANCEL'))return 'Operatsiyani bekor qilish';if(a==='INSERT')return n.type==='debt'?'Qarz yozish':n.type==='payment'?"To‘lov olish":a;}if(t.table_name==='attachments')return 'Chek — '+a;return t.table_name+' — '+a;}
+async function showAudit(){
+ const box=modal('Amallar tarixi'),root=node('div','');box.append(root);el('modal').classList.add('reportWide');
+ root.innerHTML=`<form><div class="grid"><label>Boshlanish<input name="start" type="date" required></label><label>Tugash<input name="end" type="date" required></label></div><label>Admin</label><select name="admin"><option value="">Barchasi</option></select><label>Amal turi</label><select name="action"><option value="">Barchasi</option></select><button class="full" disabled>Tarixni ko‘rish</button></form>`;
+ const f=root.querySelector('form'),e=f.elements,run=f.querySelector('button'),result=node('div','');root.append(result);e.start.value=reportDate().slice(0,7)+'-01';e.end.value=reportDate();
+ try{const [ps,cs,ts]=await Promise.all([read('profiles','id,full_name'),read('customers','id,full_name'),read('transactions','id,customer_id,amount,type')]);if(!root.isConnected)return;const pm=new Map(ps.map(x=>[x.id,x.full_name])),cm=new Map(cs.map(x=>[x.id,x.full_name])),tm=new Map(ts.map(x=>[x.id,x]));ps.forEach(x=>e.admin.append(new Option(x.full_name,x.id)));let rows=[];
+ function render(){const selected=rows.filter(t=>!e.action.value||auditLabel(t)===e.action.value);result.replaceChildren(node('p',`Jami: ${selected.length} ta amal | Toshkent vaqti`));const headers=['Sana','Admin','Amal','Mijoz','Summa','Sabab','Oldingi ma’lumot','Yangi ma’lumot','Yozuv ID'];const details=selected.map(t=>{const n=t.new_data||{},o=t.old_data||{},tr=tm.get(t.table_name==='transactions'?t.record_id:n.transaction_id||o.transaction_id)||{};const cid=t.table_name==='customers'?t.record_id:n.customer_id||o.customer_id||tr.customer_id;return [new Date(t.created_at).toLocaleString('ru-RU',{timeZone:'Asia/Tashkent'}),pm.get(t.employee_id)||t.employee_id||'',auditLabel(t),n.full_name||o.full_name||cm.get(cid)||'',n.amount??o.amount??tr.amount??'',t.reason||n.cancel_reason||'',JSON.stringify(t.old_data??null),JSON.stringify(t.new_data??null),t.record_id||''];});
+ for(const r of details.slice(0,100)){const card=node('div','','customer');card.append(node('b',r[2]+' | '+r[1]),node('small',r[0]),node('p',[r[3],r[4]===''?'':money(r[4]),r[5]].filter(Boolean).join(' | ')));const d=node('details','');d.append(node('summary','Tafsilotlar'));for(const [k,v] of [['Oldingi ma’lumot',r[6]],['Yangi ma’lumot',r[7]],['Yozuv ID',r[8]]]){const p=node('pre',v);p.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere';d.append(node('b',k),p);}card.append(d);result.append(card);}if(details.length>100)result.append(node('p','Ekranda 100 ta; Excelda barcha natijalar.','muted'));result.append(button('Excel (.xlsx) yuklab olish',()=>{try{const w=XLSX.utils.book_new(),s=XLSX.utils.aoa_to_sheet([headers,...details]);s['!cols']=headers.map(()=>({wch:25}));XLSX.utils.book_append_sheet(w,s,'Amallar');XLSX.writeFile(w,'UDUM-amallar-tarixi.xlsx');}catch(err){alert(err.message);}},'green full'));}
+ e.action.onchange=render;f.onsubmit=async ev=>{ev.preventDefault();run.disabled=true;e.action.disabled=true;result.textContent='Yuklanmoqda...';try{const start=e.start.value,end=e.end.value,admin=e.admin.value;if(start>end)throw Error('Sanalar noto‘g‘ri.');const found=[];for(let i=0;;i+=500){let q=db.from('audit_logs').select('id,employee_id,table_name,record_id,action,old_data,new_data,reason,created_at').gte('created_at',start+'T00:00:00+05:00').lt('created_at',shiftDay(end,1)+'T00:00:00+05:00').order('created_at',{ascending:false}).order('id').range(i,i+499);if(admin)q=q.eq('employee_id',admin);const {data,error}=await q;if(error)throw error;found.push(...data);if(data.length<500)break;}if(!root.isConnected)return;rows=found;e.action.replaceChildren(new Option('Barchasi',''));for(const a of [...new Set(rows.map(auditLabel))].sort())e.action.append(new Option(a,a));render();}catch(err){result.textContent=err.message||String(err);}finally{run.disabled=false;e.action.disabled=false;}};run.disabled=false;f.requestSubmit();}catch(err){result.textContent=err.message||String(err);}
+}
+el('showAudit').onclick=showAudit;
+
+init();
 </script>
 </body>
 </html>
