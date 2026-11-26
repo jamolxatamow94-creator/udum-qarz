@@ -7,161 +7,378 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box}
-body{
-  margin:0;
-  background:#f0f7f7;
-  font-family:Arial,sans-serif;
-  color:#183638;
-}
-header{
-  background:#087f8c;
-  color:white;
-  padding:22px;
-  text-align:center;
-  font-size:24px;
-  font-weight:bold;
-}
-main{
-  max-width:420px;
-  margin:45px auto;
-  padding:20px;
-}
-.card{
-  background:white;
-  border-radius:18px;
-  padding:25px;
-  box-shadow:0 5px 25px #00000012;
-}
-h2{text-align:center}
-input,button{
-  width:100%;
-  padding:15px;
-  margin:8px 0;
-  border-radius:10px;
-  font-size:16px;
-}
-input{border:1px solid #ccd8d8}
-button{
-  background:#087f8c;
-  color:white;
-  border:0;
-  font-weight:bold;
-  cursor:pointer;
-}
+body{margin:0;background:#eff7f7;color:#183638;font-family:Arial,sans-serif}
+header{background:#087f8c;color:white;padding:20px;display:flex;align-items:center;justify-content:space-between}
+header b{font-size:23px}
+main{max-width:1000px;margin:auto;padding:16px}
+.card{background:white;border-radius:16px;padding:18px;margin-bottom:14px;box-shadow:0 3px 12px #0000000b}
+.login{max-width:420px;margin:45px auto}
+h2,h3{margin-top:0}
+input,select,textarea,button{font:inherit;padding:13px;border-radius:9px;margin:5px 0}
+input,select,textarea{width:100%;border:1px solid #ccd8d8;background:white}
+button{background:#087f8c;color:white;border:0;cursor:pointer}
 button:disabled{opacity:.5}
-#message{
-  color:#b42318;
-  text-align:center;
-  overflow-wrap:anywhere;
-}
-#dashboard{display:none}
-footer{
-  text-align:center;
-  color:#718586;
-  margin-top:25px;
-  font-size:13px;
-}
+.full{width:100%}
+.small{padding:8px 12px;font-size:13px}
+.secondary{background:#e1eeee;color:#087f8c}
+.green{background:#198754}
+.red{color:#c0392b}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.stat{background:white;border-radius:13px;padding:15px}
+.stat small{color:#687e80}
+.stat strong{display:block;margin-top:10px;font-size:20px;overflow-wrap:anywhere}
+.total{background:#087f8c;color:white}
+.total small{color:#d9ffff}
+.actions{margin:15px 0}
+.customer{border-bottom:1px solid #e4eeee;padding:14px 0;cursor:pointer}
+.customer b{display:block}
+.customer small{color:#718586}
+.line{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.money{font-weight:bold;color:#b42318}
+.muted{color:#718586;font-size:13px}
+[hidden]{display:none!important}
+dialog{width:94%;max-width:500px;border:0;border-radius:16px;padding:20px;color:#183638;max-height:90vh;overflow:auto}
+dialog::backdrop{background:#0007}
+#message{white-space:pre-wrap;overflow-wrap:anywhere}
+footer{text-align:center;color:#718586;padding:20px;font-size:13px}
 </style>
 </head>
 <body>
-
-<header>UDUM QARZ</header>
-
+<header>
+<b>UDUM QARZ</b>
+<button id="logout" class="small secondary" hidden>Chiqish</button>
+</header>
 <main>
-<section class="card" id="login">
+<section id="login" class="card login">
 <h2>Tizimga kirish</h2>
 <form id="loginForm">
 <label>Elektron pochta</label>
-<input id="email" type="email"
-placeholder="Email" required>
+<input id="email" type="email" required>
 <label>Parol</label>
-<input id="password" type="password"
-placeholder="Parol" required>
-<button id="loginButton" type="submit">
-Kirish
-</button>
+<input id="password" type="password" required>
+<button class="full">Kirish</button>
 </form>
-<p id="message"></p>
 </section>
-
-<section class="card" id="dashboard">
-<h2 id="welcome"></h2>
-<p>Tizimga muvaffaqiyatli kirdingiz.</p>
-<p>Huquq: Administrator</p>
-<button id="logout">Chiqish</button>
+<p id="message" role="status"></p>
+<section id="dashboard" hidden>
+<div class="line">
+<h3 id="welcome"></h3>
+<button id="refresh" class="small secondary">Yangilash</button>
+</div>
+<div class="grid">
+<div class="stat total">
+<small>Qarz qoldig'i</small>
+<strong id="balance">—</strong>
+</div>
+<div class="stat">
+<small>Mijozlar soni</small>
+<strong id="count">—</strong>
+</div>
+<div class="stat">
+<small>Jami qarz</small>
+<strong id="debt">—</strong>
+</div>
+<div class="stat">
+<small>Jami to'langan</small>
+<strong id="paid">—</strong>
+</div>
+</div>
+<div class="grid actions">
+<button id="newCustomer">+ Yangi mijoz</button>
+<button id="showBranches" class="secondary">Do'konlar</button>
+</div>
+<div class="card">
+<h3>Mijozlar</h3>
+<input id="search" placeholder="Ism yoki telefon raqami">
+<div id="customers"></div>
+</div>
 </section>
-
-<footer>UDUM QARZ • 2026</footer>
 </main>
-
+<dialog id="modal">
+<div class="line">
+<h3 id="modalTitle"></h3>
+<button id="closeModal" class="small secondary">Yopish</button>
+</div>
+<div id="modalBody"></div>
+<p id="modalMessage" class="red"></p>
+</dialog>
+<footer>UDUM QARZ • 2026</footer>
 <script>
-const db = supabase.createClient(
-  "https://xcbbmbwgrwkzbcoijnbc.supabase.co",
-  "sb_publishable_DfgQZv2a5IyqLAgmfwiN2w_PSbZc3og"
+const db=supabase.createClient(
+"https://xcbbmbwgrwkzbcoijnbc.supabase.co",
+"sb_publishable_DfgQZv2a5IyqLAgmfwiN2w_PSbZc3og"
 );
+const el=id=>document.getElementById(id);
+let customers=[],branches=[];
+const money=n=>Number(n||0).toLocaleString("ru-RU")+" so'm";
 
-const el = id => document.getElementById(id);
-
-async function checkUser(user){
-  const {data,error} = await db
-    .from("profiles")
-    .select("full_name,role,active")
-    .eq("id",user.id)
-    .single();
-
-  if(error || !data ||
-     !data.active || data.role !== "admin"){
-    await db.auth.signOut();
-    el("message").textContent =
-      "Kirish huquqi mavjud emas.";
-    return;
-  }
-
-  el("welcome").textContent =
-    "Xush kelibsiz, " + data.full_name;
-
-  el("login").style.display = "none";
-  el("dashboard").style.display = "block";
+function node(tag,text,cls){
+ const n=document.createElement(tag);
+ n.textContent=text;
+ if(cls)n.className=cls;
+ return n;
 }
-
-el("loginForm").onsubmit = async e => {
-  e.preventDefault();
-  el("loginButton").disabled = true;
-  el("message").textContent = "";
-
-  try{
-    const {data,error} =
-      await db.auth.signInWithPassword({
-        email:el("email").value.trim(),
-        password:el("password").value
-      });
-
-    if(error) throw error;
-
-    el("password").value = "";
-    await checkUser(data.user);
-
-  }catch(error){
-    el("message").textContent =
-      "Kirishda xatolik: " + error.message;
-  }finally{
-    el("loginButton").disabled = false;
-  }
+function button(text,fn,cls){
+ const b=node("button",text,cls);
+ b.type="button";
+ b.onclick=fn;
+ return b;
+}
+function modal(title){
+ el("modalTitle").textContent=title;
+ el("modalBody").replaceChildren();
+ el("modalMessage").textContent="";
+ if(!el("modal").open)el("modal").showModal();
+ return el("modalBody");
+}
+function errorMessage(e){
+ el("message").textContent=e.message||String(e);
+}
+async function rpc(name,args){
+ const {data,error}=await db.rpc(name,args);
+ if(error)throw error;
+ return data;
+}
+async function read(table,columns){
+ let result=[];
+ for(let start=0;;start+=500){
+ const {data,error}=await db.from(table)
+ .select(columns).order(columns.split(",")[0])
+ .range(start,start+499);
+ if(error)throw error;
+ result.push(...data);
+ if(data.length<500)return result;
+ }
+}
+async function checkUser(user){
+ const {data,error}=await db.from("profiles")
+ .select("full_name,role,active")
+ .eq("id",user.id).single();
+ if(error||!data||!data.active||data.role!=="admin"){
+ await db.auth.signOut();
+ throw new Error("Kirish huquqi mavjud emas.");
+ }
+ el("welcome").textContent=data.full_name;
+ el("login").hidden=true;
+ el("dashboard").hidden=false;
+ el("logout").hidden=false;
+ await load();
+}
+el("loginForm").onsubmit=async e=>{
+ e.preventDefault();
+ const b=e.target.querySelector("button");
+ b.disabled=true;
+ el("message").textContent="";
+ try{
+ const {data,error}=await db.auth.signInWithPassword({
+ email:el("email").value.trim(),
+ password:el("password").value
+ });
+ if(error)throw error;
+ el("password").value="";
+ await checkUser(data.user);
+ }catch(e){errorMessage(e)}
+ finally{b.disabled=false}
 };
-
-el("logout").onclick = async () => {
-  const {error} = await db.auth.signOut();
-  if(!error) location.reload();
+el("logout").onclick=async()=>{
+ const {error}=await db.auth.signOut();
+ if(error)errorMessage(error);
+ else location.reload();
 };
-
+async function load(){
+ el("message").textContent="";
+ try{
+ const [c,b]=await Promise.all([
+ read("customer_balances","customer_id,full_name,phone,archived,total_debt,total_paid,balance"),
+ read("branches","id,name,active")
+ ]);
+ customers=c.filter(x=>!x.archived);
+ branches=b.filter(x=>x.active);
+ for(const [id,key] of [
+ ["balance","balance"],
+ ["debt","total_debt"],
+ ["paid","total_paid"]
+ ]){
+ el(id).textContent=money(customers.reduce(
+ (s,x)=>s+Number(x[key]||0),0));
+ }
+ el("count").textContent=customers.length;
+ renderCustomers();
+ }catch(e){errorMessage(e)}
+}
+function renderCustomers(){
+ const q=el("search").value.trim().toLowerCase();
+ const box=el("customers");
+ box.replaceChildren();
+ const list=customers.filter(c=>
+ (c.full_name+" "+(c.phone||"")).toLowerCase().includes(q)
+ );
+ if(!list.length)box.append(node("p","Mijozlar topilmadi.","muted"));
+ for(const c of list){
+ const row=node("div","","customer line");
+ const info=node("div","");
+ info.append(node("b",c.full_name),
+ node("small",c.phone||"Telefon kiritilmagan"));
+ row.append(info,node("span",money(c.balance),"money"));
+ row.onclick=()=>showCustomer(c.customer_id);
+ box.append(row);
+ }
+}
+el("search").oninput=renderCustomers;
+el("refresh").onclick=load;
+el("closeModal").onclick=()=>el("modal").close();
+el("showBranches").onclick=()=>{
+ const box=modal("Do'konlar");
+ for(const b of branches)box.append(node("p",b.name));
+ if(!branches.length)box.append(node("p","Faol do'kon topilmadi."));
+};
+el("newCustomer").onclick=()=>{
+ const box=modal("Yangi mijoz");
+ box.innerHTML=`
+ <form id="customerForm">
+ <label>Ism familiya</label>
+ <input name="name" required>
+ <label>Telefon raqami</label>
+ <input name="phone" type="tel">
+ <label>Izoh</label>
+ <textarea name="note"></textarea>
+ <button class="full">Saqlash</button>
+ </form>`;
+ el("customerForm").onsubmit=async e=>{
+ e.preventDefault();
+ const f=new FormData(e.target);
+ const b=e.target.querySelector("button");
+ b.disabled=true;
+ try{
+ if(!f.get("name").trim())throw new Error("Ism kiriting.");
+ await rpc("add_customer",{
+ p_full_name:f.get("name").trim(),
+ p_phone:f.get("phone").trim()||null,
+ p_note:f.get("note").trim()||null
+ });
+ el("modal").close();
+ await load();
+ }catch(e){el("modalMessage").textContent=e.message}
+ finally{b.disabled=false}
+ };
+};
+async function showCustomer(id){
+ const c=customers.find(x=>x.customer_id===id);
+ if(!c)return;
+ const box=modal(c.full_name);
+ box.append(node("p",c.phone||"Telefon yo'q"),
+ node("h2",money(c.balance),"money"));
+ const actions=node("div","","grid");
+ actions.append(
+ button("+ Qarz",()=>transaction(c,"debt")),
+ button("+ To'lov",()=>transaction(c,"payment"),"green")
+ );
+ box.append(actions,node("h3","Operatsiyalar tarixi"));
+ const history=node("div","Yuklanmoqda...");
+ box.append(history);
+ const {data,error}=await db.from("customer_history")
+ .select("*").eq("customer_id",id)
+ .order("created_at",{ascending:false}).limit(100);
+ history.replaceChildren();
+ if(error){
+ history.textContent=error.message;
+ return;
+ }
+ if(!data.length)history.textContent="Operatsiyalar yo'q.";
+ for(const t of data){
+ const r=node("div","","customer");
+ r.append(node("b",(t.type==="debt"?"Qarz":t.type==="payment"?"To'lov":t.type)+" — "+money(t.amount)),
+ node("small",t.branch_name+" | "+new Date(t.created_at).toLocaleString("ru-RU")),
+ node("p",t.cancelled?"Bekor qilingan":"Cheklar: "+t.receipt_count,"muted"));
+ if(!t.cancelled){
+ r.append(button("Chek biriktirish",()=>receipt(t.transaction_id,id),"small secondary"));
+ }
+ history.append(r);
+ }
+}
+function transaction(c,type){
+ const box=modal(type==="debt"?"Qarz yozish":"To'lov olish");
+ box.append(node("p",c.full_name));
+ const form=document.createElement("form");
+ form.innerHTML=`
+ <label>Do'kon</label>
+ <select name="branch" required></select>
+ <label>Summa (so'm)</label>
+ <input name="amount" type="number" min="1" step="1" required>
+ <label>Izoh</label>
+ <textarea name="note"></textarea>
+ <label>To'lov muddati (ixtiyoriy)</label>
+ <input name="due" type="date">
+ <button class="full">Saqlash</button>`;
+ const select=form.elements.branch;
+ select.append(new Option("Do'konni tanlang",""));
+ for(const b of branches)select.append(new Option(b.name,b.id));
+ box.append(form);
+ form.onsubmit=async e=>{
+ e.preventDefault();
+ const f=new FormData(form);
+ const amount=Number(f.get("amount"));
+ const b=form.querySelector("button");
+ b.disabled=true;
+ try{
+ if(!Number.isSafeInteger(amount)||amount<=0)
+ throw new Error("Summani to'g'ri kiriting.");
+ await rpc("add_transaction",{
+ p_customer_id:c.customer_id,
+ p_branch_id:f.get("branch"),
+ p_type:type,
+ p_amount:amount,
+ p_order_id:null,
+ p_note:f.get("note")||null,
+ p_due_date:f.get("due")||null
+ });
+ await load();
+ await showCustomer(c.customer_id);
+ }catch(e){el("modalMessage").textContent=e.message}
+ finally{b.disabled=false}
+ };
+}
+function receipt(transactionId,customerId){
+ const box=modal("Chek rasmini biriktirish");
+ const form=document.createElement("form");
+ form.innerHTML=`
+ <input name="photo" type="file" accept="image/jpeg,image/png,image/webp" required>
+ <textarea name="note" placeholder="Izoh"></textarea>
+ <button class="full">Rasmni yuklash</button>`;
+ box.append(form);
+ form.onsubmit=async e=>{
+ e.preventDefault();
+ const f=new FormData(form);
+ const file=f.get("photo");
+ const b=form.querySelector("button");
+ b.disabled=true;
+ try{
+ if(!["image/jpeg","image/png","image/webp"].includes(file.type))
+ throw new Error("JPG, PNG yoki WEBP rasm tanlang.");
+ if(file.size>5*1024*1024)
+ throw new Error("Rasm 5 MB dan oshmasin.");
+ const path=await rpc("prepare_receipt",{
+ p_transaction_id:transactionId,
+ p_note:f.get("note")||null
+ });
+ const {error}=await db.storage.from("receipts")
+ .upload(path,file,{contentType:file.type,upsert:false});
+ if(error)throw error;
+ const ok=await rpc("confirm_receipt",{p_file_path:path});
+ if(!ok)throw new Error("Chek tasdiqlanmadi.");
+ await showCustomer(customerId);
+ }catch(e){el("modalMessage").textContent=e.message}
+ finally{b.disabled=false}
+ };
+}
 async function init(){
-  const {data,error} = await db.auth.getUser();
-  if(!error && data.user){
-    await checkUser(data.user);
-  }
+ const {data,error}=await db.auth.getUser();
+ if(!error&&data.user){
+ try{await checkUser(data.user)}
+ catch(e){errorMessage(e)}
+ }
 }
 init();
 </script>
-
 </body>
 </html>
