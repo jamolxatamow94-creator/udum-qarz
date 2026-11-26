@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>UDUM QARZ</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <style>
+.reportWide{max-width:950px}.reportScroll{overflow-x:auto}.reportTable{border-collapse:collapse;width:100%;font-size:13px}.reportTable td,.reportTable th{padding:9px;border-bottom:1px solid #ccd8d8;text-align:left;white-space:nowrap}.reportTable th{background:#e1eeee}
 *{box-sizing:border-box}
 body{margin:0;background:#eff7f7;color:#183638;font-family:Arial,sans-serif}
 header{background:#087f8c;color:white;padding:20px;display:flex;align-items:center;justify-content:space-between}
@@ -85,6 +87,7 @@ footer{text-align:center;color:#718586;padding:20px;font-size:13px}
 </div>
 <div class="grid actions">
 <button id="newCustomer">+ Yangi mijoz</button>
+<button id="showReports" class="green">Hisobotlar</button>
 <button id="showBranches" class="secondary">Do'konlar</button>
 </div>
 <div class="card">
@@ -126,6 +129,7 @@ function button(text,fn,cls){
  return b;
 }
 function modal(title){
+ el("modal").classList.remove("reportWide");
  el("modalTitle").textContent=title;
  el("modalBody").replaceChildren();
  el("modalMessage").textContent="";
@@ -493,6 +497,31 @@ async function changeArchive(c,archived){
  el("modal").close();await load();
  }catch(e){el("modalMessage").textContent=e.message;buttons.forEach((b,i)=>b.disabled=states[i]);}
 }
+function reportDay(d=new Date()){return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tashkent',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d).filter(x=>x.type!=='literal').reduce((a,x)=>(a[x.type]=x.value,a),{});}
+function reportDate(d=new Date()){const p=reportDay(d);return `${p.year}-${p.month}-${p.day}`;}
+function shiftDay(s,n){const d=new Date(s+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
+async function showReports(){
+ const box=modal('Hisobotlar'); const root=node('div','');box.append(root);el('modal').classList.add('reportWide');
+ root.innerHTML=`<form><label>Davr</label><select name="period"><option value="today">Bugun</option><option value="yesterday">Kecha</option><option value="week">Shu hafta</option><option value="month" selected>Shu oy</option><option value="custom">Ixtiyoriy</option></select><div class="grid"><label>Boshlanish<input type="date" name="start" required></label><label>Tugash<input type="date" name="end" required></label></div><label>Do'kon</label><select name="branch"><option value="">Barcha do'konlar</option></select><label>Admin</label><select name="employee"><option value="">Barcha adminlar</option></select><label>Operatsiya</label><select name="type"><option value="">Barchasi</option><option value="debt">Qarz</option><option value="payment">To'lov</option></select><button class="full" disabled>Hisobotni ko'rish</button></form>`;
+ const f=root.querySelector('form'), e=f.elements, run=f.querySelector('button'), result=node('div','');root.append(result);
+ const preset=()=>{const t=reportDate();let s=t,z=t;switch(e.period.value){case 'yesterday':s=z=shiftDay(t,-1);break;case 'week':s=shiftDay(t,-((new Date(t+'T00:00:00Z').getUTCDay()+6)%7));break;case 'month':s=t.slice(0,7)+'-01';break;case 'custom':return;}e.start.value=s;e.end.value=z;};preset();e.period.onchange=preset;e.start.onchange=e.end.onchange=()=>e.period.value='custom';
+ try{
+ const [bs,ps,cs]=await Promise.all([read('branches','id,name'),read('profiles','id,full_name,role'),read('customers','id,full_name')]);if(!root.isConnected)return;
+ const bm=new Map(bs.map(x=>[x.id,x.name])),pm=new Map(ps.map(x=>[x.id,x.full_name])),cm=new Map(cs.map(x=>[x.id,x.full_name]));
+ bs.forEach(x=>e.branch.append(new Option(x.name,x.id)));ps.filter(x=>x.role==='admin').forEach(x=>e.employee.append(new Option(x.full_name,x.id)));run.disabled=false;
+ f.onsubmit=async ev=>{ev.preventDefault();run.disabled=true;result.textContent='Yuklanmoqda...';const start=e.start.value,end=e.end.value,branch=e.branch.value,employee=e.employee.value,type=e.type.value;
+ try{if(start>end)throw Error('Sanalar noto‘g‘ri.');const rows=[];for(let i=0;;i+=500){let q=db.from('transactions').select('id,customer_id,branch_id,employee_id,type,amount,created_at,cancelled,cancel_reason').gte('created_at',start+'T00:00:00+05:00').lt('created_at',shiftDay(end,1)+'T00:00:00+05:00').order('created_at').order('id').range(i,i+499);if(branch)q=q.eq('branch_id',branch);if(employee)q=q.eq('employee_id',employee);if(type)q=q.eq('type',type);const {data,error}=await q;if(error)throw error;rows.push(...data);if(data.length<500)break;}
+ if(!root.isConnected)return;let debt=0,paid=0,cancelled=0,active=0;const groups=new Map();for(const t of rows){const g=groups.get(t.branch_id)||[bm.get(t.branch_id)||t.branch_id,0,0,0,0];groups.set(t.branch_id,g);if(t.cancelled){cancelled++;g[4]++;continue;}active++;g[3]++;if(t.type==='debt'){debt+=Number(t.amount);g[1]+=Number(t.amount);}if(t.type==='payment'){paid+=Number(t.amount);g[2]+=Number(t.amount);}}
+ result.replaceChildren(node('p',`${start} — ${end} | Toshkent vaqti`,'muted'));const grid=node('div','','grid');for(const [k,v] of [['Jami qarz',money(debt)],['Jami to‘lov',money(paid)],['Sof qarz o‘zgarishi',money(debt-paid)],['Faol operatsiyalar',active],['Bekor qilingan',cancelled]]){const s=node('div','','stat');s.append(node('small',k),node('strong',String(v)));grid.append(s);}result.append(grid);
+ const summary=[['Do‘kon','Qarz','To‘lov','Faol','Bekor qilingan'],...groups.values()];const details=[['Sana (Toshkent)','Mijoz','Do‘kon','Admin','Tur','Summa','Holat','Bekor qilish sababi'],...rows.map(t=>[new Date(t.created_at).toLocaleString('ru-RU',{timeZone:'Asia/Tashkent'}),cm.get(t.customer_id)||t.customer_id,bm.get(t.branch_id)||t.branch_id,pm.get(t.employee_id)||t.employee_id,t.type==='debt'?'Qarz':'To‘lov',Number(t.amount),t.cancelled?'Bekor qilingan':'Faol',t.cancel_reason||''])];
+ function table(a){const wrap=node('div','','reportScroll'),tab=node('table','','reportTable');a.forEach((r,i)=>{const tr=node('tr','');r.forEach(v=>tr.append(node(i?'td':'th',String(v??''))));tab.append(tr);});wrap.append(tab);return wrap;}
+ result.append(node('h3','Do‘konlar kesimida'),table(summary),node('h3','Operatsiyalar'),table(details.slice(0,101)));if(rows.length>100)result.append(node('p','Ekranda 100 ta; Excelda barcha operatsiyalar.','muted'));
+ result.append(button('Excel (.xlsx) yuklab olish',()=>{try{if(!window.XLSX)throw Error('Excel kutubxonasi yuklanmadi. Internetni tekshiring.');const w=XLSX.utils.book_new();const sheets=[['Jami',[['Davr',start,end],['Do‘kon',bm.get(branch)||'Barchasi'],['Admin',pm.get(employee)||'Barchasi'],['Tur',type||'Barchasi'],['Qarz',debt],['To‘lov',paid],['Sof o‘zgarish',debt-paid],['Faol',active],['Bekor qilingan',cancelled]]],['Dokonlar',summary],['Operatsiyalar',details]];for(const [name,a] of sheets){const sh=XLSX.utils.aoa_to_sheet(a);sh['!cols']=a[0].map((_,i)=>({wch:Math.min(45,Math.max(14,...a.slice(0,100).map(r=>String(r[i]??'').length+2)))}));XLSX.utils.book_append_sheet(w,sh,name);}XLSX.writeFile(w,`UDUM-hisobot-${start}-${end}.xlsx`);}catch(err){alert(err.message);}},'green full'));
+ }catch(err){result.textContent=err.message||String(err);}finally{run.disabled=false;}};f.requestSubmit();
+ }catch(err){result.textContent=err.message||String(err);}
+}
+el('showReports').onclick=showReports;
+
  init();
 </script>
 </body>
