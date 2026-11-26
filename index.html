@@ -88,7 +88,7 @@ footer{text-align:center;color:#718586;padding:20px;font-size:13px}
 <button id="showBranches" class="secondary">Do'konlar</button>
 </div>
 <div class="card">
-<h3>Mijozlar</h3>
+<div class="line"><h3>Mijozlar</h3><button id="archiveList" class="small secondary">Arxiv (0)</button></div>
 <input id="search" placeholder="Ism yoki telefon raqami">
 <div id="customers"></div>
 </div>
@@ -109,7 +109,8 @@ const db=supabase.createClient(
 "sb_publishable_DfgQZv2a5IyqLAgmfwiN2w_PSbZc3og"
 );
 const el=id=>document.getElementById(id);
-let customers=[],branches=[];
+let customers=[],branches=[],archivedCustomers=[];
+let archiveMode=false;
 const money=n=>Number(n||0).toLocaleString("ru-RU")+" so'm";
 
 function node(tag,text,cls){
@@ -193,6 +194,8 @@ async function load(){
  read("branches","id,name,active")
  ]);
  customers=c.filter(x=>!x.archived);
+ archivedCustomers=c.filter(x=>x.archived);
+ el("archiveList").textContent=archiveMode?"Faol mijozlar":`Arxiv (${archivedCustomers.length})`;
  branches=b.filter(x=>x.active);
  for(const [id,key] of [
  ["balance","balance"],
@@ -210,7 +213,7 @@ function renderCustomers(){
  const q=el("search").value.trim().toLowerCase();
  const box=el("customers");
  box.replaceChildren();
- const list=customers.filter(c=>
+ const list=(archiveMode?archivedCustomers:customers).filter(c=>
  (c.full_name+" "+(c.phone||"")).toLowerCase().includes(q)
  );
  if(!list.length)box.append(node("p","Mijozlar topilmadi.","muted"));
@@ -224,6 +227,7 @@ function renderCustomers(){
  box.append(row);
  }
 }
+el("archiveList").onclick=()=>{archiveMode=!archiveMode;el("archiveList").textContent=archiveMode?"Faol mijozlar":`Arxiv (${archivedCustomers.length})`;renderCustomers();};
 el("search").oninput=renderCustomers;
 el("refresh").onclick=load;
 el("closeModal").onclick=()=>el("modal").close();
@@ -263,16 +267,26 @@ el("newCustomer").onclick=()=>{
  };
 };
 async function showCustomer(id){
- const c=customers.find(x=>x.customer_id===id);
+ const c=[...customers,...archivedCustomers].find(x=>x.customer_id===id);
  if(!c)return;
  const box=modal(c.full_name);
  box.append(node("p",c.phone||"Telefon yo'q"),
  node("h2",money(c.balance),"money"));
  const actions=node("div","","grid");
- actions.append(
+ if(!c.archived) actions.append(
  button("+ Qarz",()=>transaction(c,"debt")),
  button("+ To'lov",()=>transaction(c,"payment"),"green")
  );
+ if(c.archived){
+ actions.append(button("Arxivdan qaytarish",()=>changeArchive(c,false),"green"));
+ box.append(node("p","Arxivlangan mijoz","muted"));
+ }else{
+ actions.append(button("Tahrirlash",()=>editCustomer(c),"secondary"));
+ const archiveButton=button("Arxivlash",()=>changeArchive(c,true),"secondary");
+ archiveButton.disabled=Number(c.balance)!==0;
+ actions.append(archiveButton);
+ if(archiveButton.disabled)box.append(node("p","Arxivlash uchun qoldiq 0 bo'lishi kerak.","muted"));
+ }
  box.append(actions,node("h3","Operatsiyalar tarixi"));
  const history=node("div","Yuklanmoqda...");
  box.append(history);
@@ -290,9 +304,13 @@ async function showCustomer(id){
  r.append(node("b",(t.type==="debt"?"Qarz":t.type==="payment"?"To'lov":t.type)+" — "+money(t.amount)),
  node("small",t.branch_name+" | "+new Date(t.created_at).toLocaleString("ru-RU")),
  node("p",t.cancelled?"Bekor qilingan":"Cheklar: "+t.receipt_count,"muted"));
- if(!t.cancelled){
+ if(!t.cancelled&&!c.archived){
  r.append(button("Chek biriktirish",()=>receipt(t.transaction_id,id),"small secondary"));
+ const cancel=button("Bekor qilish",()=>cancelOperation(t.transaction_id,id),"small secondary");
+ cancel.style.color="#b91c1c";
+ r.append(cancel);
  }
+ if(Number(t.receipt_count)>0)r.append(button("Chekni ko'rish",()=>viewReceipts(t.transaction_id,id),"small secondary"));
  history.append(r);
  }
 }
@@ -418,32 +436,6 @@ async function viewReceipts(transactionId, customerId){
   }
 }
 
-const originalShowCustomer=showCustomer;
-
-showCustomer=async function(id){
-  await originalShowCustomer(id);
-
-  const {data,error}=await db.from("customer_history")
-    .select("*")
-    .eq("customer_id",id)
-    .order("created_at",{ascending:false})
-    .limit(100);
-
-  if(error)return;
-
-  const rows=el("modalBody")
-    .querySelectorAll(".customer");
-
-  data.forEach((t,i)=>{
-    if(rows[i]&&Number(t.receipt_count)>0){
-      rows[i].append(button(
-        "Chekni ko'rish",
-        ()=>viewReceipts(t.transaction_id,id),
-        "small secondary"
-      ));
-    }
-  });
-};
 async function cancelOperation(transactionId, customerId){
   const reason=prompt("Bekor qilish sababini yozing:");
 
@@ -465,36 +457,42 @@ async function cancelOperation(transactionId, customerId){
   }
 }
 
-const previousShowCustomer=showCustomer;
-
-showCustomer=async function(id){
-  await previousShowCustomer(id);
-
-  const {data,error}=await db.from("customer_history")
-    .select("*")
-    .eq("customer_id",id)
-    .order("created_at",{ascending:false})
-    .limit(100);
-
-  if(error)return;
-
-  const rows=el("modalBody")
-    .querySelectorAll(".customer");
-
-  data.forEach((t,i)=>{
-    if(rows[i]&&!t.cancelled){
-      const b=button(
-        "Bekor qilish",
-        ()=>cancelOperation(t.transaction_id,id),
-        "small secondary"
-      );
-
-      b.style.color="#b91c1c";
-      b.style.marginTop="8px";
-      rows[i].append(b);
-    }
-  });
-};
+async function editCustomer(c){
+ const box=modal("Mijozni tahrirlash");
+ const loading=node("p","Yuklanmoqda...");box.append(loading);
+ try{
+ const {data,error}=await db.from("customers").select("full_name,phone,note,archived").eq("id",c.customer_id).single();
+ if(error)throw error;
+ if(data.archived)throw new Error("Mijoz arxivlangan.");
+ if(!loading.isConnected||!el("modal").open)return;
+ loading.remove();
+ const form=document.createElement("form");
+ form.innerHTML=`<label>Ism familiya</label><input name="name" required minlength="2"><label>Telefon raqami</label><input name="phone" type="tel"><label>Izoh</label><textarea name="note"></textarea><button class="full">Saqlash</button>`;
+ form.elements.name.value=data.full_name;
+ form.elements.phone.value=data.phone||"";
+ form.elements.note.value=data.note||"";
+ box.append(form,button("Orqaga",()=>showCustomer(c.customer_id),"secondary"));
+ form.onsubmit=async e=>{
+ e.preventDefault();const b=form.querySelector("button");b.disabled=true;
+ try{
+ const ok=await rpc("update_customer",{p_customer_id:c.customer_id,p_full_name:form.elements.name.value.trim(),p_phone:form.elements.phone.value.trim()||null,p_note:form.elements.note.value.trim()||null});
+ if(!ok)throw new Error("Saqlanmadi.");
+ await load();await showCustomer(c.customer_id);
+ }catch(e){el("modalMessage").textContent=e.message}finally{b.disabled=false}
+ };
+ }catch(e){loading.textContent=e.message;}
+}
+async function changeArchive(c,archived){
+ if(archived&&Number(c.balance)!==0)return;
+ if(!confirm(c.full_name+ (archived?" — arxivlashni tasdiqlaysizmi?":" — arxivdan qaytarilsinmi?")))return;
+ const buttons=[...el("modalBody").querySelectorAll("button")];
+ const states=buttons.map(b=>b.disabled);buttons.forEach(b=>b.disabled=true);
+ try{
+ const ok=await rpc("archive_customer",{p_customer_id:c.customer_id,p_archived:archived});
+ if(!ok)throw new Error("Holat o'zgarmadi.");
+ el("modal").close();await load();
+ }catch(e){el("modalMessage").textContent=e.message;buttons.forEach((b,i)=>b.disabled=states[i]);}
+}
  init();
 </script>
 </body>
