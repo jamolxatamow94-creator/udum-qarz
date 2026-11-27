@@ -617,6 +617,7 @@ async function dailyReport(){
 async function employees(){
  if(!admin())return;
  const box=modal("Xodimlar");
+ box.append(button("+ Yangi xodim",newEmployee,"green full"));
  try{
  const list=await read("profiles","id,full_name,role,branch_id,active");
  for(const p of list){
@@ -638,6 +639,20 @@ function editEmployee(p){
  f.elements.active.value=String(p.active);
  box.append(f,button("Orqaga",employees,"secondary"));
  f.onsubmit=async e=>{e.preventDefault();const b=f.querySelector("button");b.disabled=true;try{await rpc("manage_employee",{p_id:p.id,p_full_name:f.elements.fullname.value,p_branch_id:f.elements.branch.value,p_active:f.elements.active.value==="true"});await employees();}catch(e){el("modalMessage").textContent=e.message;}finally{b.disabled=false;}};
+}
+function newEmployee(){
+ if(!admin())return;
+ const box=modal("Yangi xodim"),f=document.createElement("form");
+ f.innerHTML=`<label>Ism familiya</label><input name="fullname" required maxlength="150"><label>Elektron pochta (login)</label><input name="email" type="email" required autocomplete="off"><label>Parol (kamida 12 belgi)</label><input name="password" type="password" minlength="12" maxlength="72" required autocomplete="new-password"><label>Do'kon</label><select name="branch" required></select><button class="full">Xodim yaratish</button>`;
+ f.elements.branch.append(new Option("Tanlang",""));
+ for(const b of branches)f.elements.branch.append(new Option(b.name,b.id));
+ box.append(f,button("Orqaga",employees,"secondary"));
+ f.onsubmit=async e=>{e.preventDefault();const b=f.querySelector("button");b.disabled=true;el("modalMessage").textContent="";try{
+ const {data,error}=await db.functions.invoke("create-employee",{body:{full_name:f.elements.fullname.value,email:f.elements.email.value,password:f.elements.password.value,branch_id:f.elements.branch.value}});
+ if(error){let message=error.message;try{const j=await error.context.json();message=j.error||message;}catch{}throw Error(message);}
+ if(!data?.ok)throw Error(data?.error||"Xodim yaratilmadi");
+ f.elements.password.value="";await employees();alert("Xodim yaratildi.");
+ }catch(e){el("modalMessage").textContent=e.message;}finally{b.disabled=false;}};
 }
 el("showEmployees").onclick=employees;
 
