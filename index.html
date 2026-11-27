@@ -570,7 +570,7 @@ function customerReport(initial){
 el('showReports').onclick=reportMenu;
 
 
-function auditLabel(t){const a=String(t.action||'').toUpperCase(),o=t.old_data||{},n=t.new_data||{},create=['CREATE','INSERT'].includes(a);if(t.table_name==='customers'){if(create)return 'Yangi mijoz qo‘shildi';if(a==='UPDATE'){if(o.archived!==n.archived&&typeof n.archived==='boolean')return n.archived?'Mijoz arxivlandi':'Mijoz tiklandi';return 'Mijoz tahrirlandi';}}if(t.table_name==='transactions'){if((n.cancelled===true&&o.cancelled!==true)||a.includes('CANCEL'))return 'Operatsiya bekor qilindi';if(create)return n.type==='debt'?'Qarz yozildi':n.type==='payment'?'To‘lov olindi':'Operatsiya qo‘shildi';}if(t.table_name==='attachments'){if(a.includes('CONFIRM')||a==='UPDATE')return 'Chek ma’lumoti yangilandi';if(create||a.includes('PREPARE'))return 'Chek biriktirish boshlandi';}return t.table_name+' — '+a;}
+function auditLabel(t){const a=String(t.action||'').toUpperCase(),o=t.old_data||{},n=t.new_data||{},create=['CREATE','INSERT'].includes(a);if(t.table_name==='profiles'){if(a==='PASSWORD_RESET')return 'Xodim paroli almashtirildi';if(create)return 'Yangi xodim yaratildi';if(a==='UPDATE'){if(o.active!==n.active&&typeof n.active==='boolean')return n.active?'Xodim qayta faollashtirildi':'Xodim faolsizlantirildi';return 'Xodim ma’lumotlari o‘zgartirildi';}}if(t.table_name==='customers'){if(create)return 'Yangi mijoz qo‘shildi';if(a==='UPDATE'){if(o.archived!==n.archived&&typeof n.archived==='boolean')return n.archived?'Mijoz arxivlandi':'Mijoz tiklandi';return 'Mijoz tahrirlandi';}}if(t.table_name==='transactions'){if((n.cancelled===true&&o.cancelled!==true)||a.includes('CANCEL'))return 'Operatsiya bekor qilindi';if(create)return n.type==='debt'?'Qarz yozildi':n.type==='payment'?'To‘lov olindi':'Operatsiya qo‘shildi';}if(t.table_name==='attachments'){if(a.includes('CONFIRM')||a==='UPDATE')return 'Chek ma’lumoti yangilandi';if(create||a.includes('PREPARE'))return 'Chek biriktirish boshlandi';}return t.table_name+' — '+a;}
 function auditFields(data,pm,cm,bm){
  if(!data||typeof data!=='object')return [];
  const fields=[['full_name','Ism familiya'],['customer_id','Mijoz'],['phone','Telefon'],['type','Operatsiya'],['amount','Summa'],['branch_id','Do‘kon'],['employee_id','Mas’ul xodim'],['note','Izoh'],['due_date','To‘lov muddati'],['created_at','Yaratilgan vaqt'],['updated_at','Yangilangan vaqt'],['cancelled','Holati'],['cancelled_by','Bekor qilgan xodim'],['cancelled_at','Bekor qilingan vaqt'],['cancel_reason','Bekor qilish sababi'],['archived','Arxiv holati'],['file_name','Chek fayli'],['confirmed','Chek tasdiqlangan'],['confirmed_at','Tasdiqlangan vaqt'],['active','Faollik']];
@@ -624,6 +624,7 @@ async function employees(){
  const row=node("div","","customer");
  row.append(node("b",p.full_name),node("p",(p.role==="admin"?"Administrator":branches.find(b=>b.id===p.branch_id)?.name||"Do'kon biriktirilmagan")+" · "+(p.active?"Faol":"Faol emas"),"muted"));
  if(p.role==="employee")row.append(button("Tahrirlash",()=>editEmployee(p),"secondary small"));
+ if(p.role==="employee" && profile.id==="b60757dd-ec80-429b-bd38-18d7be5de542")row.append(button("Parolni almashtirish",()=>resetEmployeePassword(p),"secondary small"));
  if(p.role==="employee" && p.active && profile.id==="b60757dd-ec80-429b-bd38-18d7be5de542"){const remove=button("Faolsizlantirish",async()=>{if(!confirm(p.full_name+" hisobini faolsizlantirasizmi? Amallar tarixi saqlanadi."))return;try{await rpc("manage_employee",{p_id:p.id,p_full_name:p.full_name,p_branch_id:p.branch_id,p_active:false});await employees();}catch(e){el("modalMessage").textContent=e.message;}},"secondary small");remove.style.color="#b91c1c";row.append(remove);}
  box.append(row);
  }
@@ -640,6 +641,24 @@ function editEmployee(p){
  f.elements.active.value=String(p.active);
  box.append(f,button("Orqaga",employees,"secondary"));
  f.onsubmit=async e=>{e.preventDefault();const b=f.querySelector("button");b.disabled=true;try{await rpc("manage_employee",{p_id:p.id,p_full_name:f.elements.fullname.value,p_branch_id:f.elements.branch.value,p_active:f.elements.active.value==="true"});await employees();}catch(e){el("modalMessage").textContent=e.message;}finally{b.disabled=false;}};
+}
+function resetEmployeePassword(p){
+ if(!admin()||profile.id!=="b60757dd-ec80-429b-bd38-18d7be5de542"||p.role!=="employee")return;
+ const box=modal("Parolni almashtirish"),f=document.createElement("form");
+ box.append(node("p",p.full_name,"muted"));
+ f.innerHTML='<label>Yangi parol (kamida 6 belgi)</label><input name="password" type="password" minlength="6" maxlength="72" autocomplete="new-password" required><label>Yangi parolni takrorlang</label><input name="repeat" type="password" minlength="6" maxlength="72" autocomplete="new-password" required><button class="full green">Saqlash</button>';
+ box.append(f,button("Orqaga",employees,"secondary"));
+ f.onsubmit=async e=>{
+ e.preventDefault();const btn=f.querySelector("button");el("modalMessage").textContent="";
+ if(f.elements.password.value!==f.elements.repeat.value){el("modalMessage").textContent="Parollar bir xil emas";return;}
+ btn.disabled=true;
+ try{
+ const {data,error}=await db.functions.invoke("reset-employee-password",{body:{employee_id:p.id,password:f.elements.password.value}});
+ if(error){let message=error.message;try{const j=await error.context.json();message=j.error||message;}catch{}throw Error(message);}
+ if(!data?.ok)throw Error(data?.error||"Parol almashtirilmadi");
+ f.reset();await employees();alert(data.audit_saved===false?"Parol almashtirildi, ammo tarix yozilmadi.": "Parol muvaffaqiyatli almashtirildi.");
+ }catch(e){el("modalMessage").textContent=e.message;}finally{btn.disabled=false;}
+ };
 }
 function newEmployee(){
  if(!admin() || profile.id!=="b60757dd-ec80-429b-bd38-18d7be5de542")return;
