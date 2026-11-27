@@ -90,6 +90,7 @@ footer{text-align:center;color:#718586;padding:20px;font-size:13px}
 <button id="newCustomer">+ Yangi mijoz</button>
 <button id="showReports" class="green">Hisobotlar</button>
 <button id="showBranches" class="secondary">Do'konlar</button>
+<button id="showEmployees" class="secondary" hidden>Xodimlar</button>
 <button id="showAudit" style="background:#345b91">Amallar tarixi</button>
 </div>
 <div class="card">
@@ -174,7 +175,7 @@ async function checkUser(user){
  profile.branchName=b.name;
  }
  el("welcome").textContent=data.full_name+(admin()?" · Admin":" · "+profile.branchName);
- for(const id of ["showBranches","archiveList"])el(id).hidden=!admin();
+ for(const id of ["showBranches","archiveList","showEmployees"])el(id).hidden=!admin();
  el("showReports").textContent="Hisobotlar";
  el("showAudit").style.gridColumn=admin()?"":"1 / -1";
  el("showReports").onclick=admin()?reportMenu:dailyReport;
@@ -613,6 +614,33 @@ async function dailyReport(){
  }catch(e){if(token===version)root.textContent=e.message||String(e);}finally{if(token===version)run.disabled=false;}
  };form.requestSubmit();
 }
+async function employees(){
+ if(!admin())return;
+ const box=modal("Xodimlar");
+ try{
+ const list=await read("profiles","id,full_name,role,branch_id,active");
+ for(const p of list){
+ const row=node("div","","customer");
+ row.append(node("b",p.full_name),node("p",(p.role==="admin"?"Administrator":branches.find(b=>b.id===p.branch_id)?.name||"Do'kon biriktirilmagan")+" · "+(p.active?"Faol":"Faol emas"),"muted"));
+ if(p.role==="employee")row.append(button("Tahrirlash",()=>editEmployee(p),"secondary small"));
+ box.append(row);
+ }
+ }catch(e){el("modalMessage").textContent=e.message}
+}
+function editEmployee(p){
+ if(!admin())return;
+ const box=modal("Xodimni tahrirlash"),f=document.createElement("form");
+ f.innerHTML='<label>Ism familiya</label><input name="fullname" required maxlength="150"><label>Do\'kon</label><select name="branch" required></select><label>Holati</label><select name="active"><option value="true">Faol</option><option value="false">Faol emas</option></select><button class="full">Saqlash</button>';
+ f.elements.fullname.value=p.full_name;
+ f.elements.branch.append(new Option("Tanlang",""));
+ for(const b of branches)f.elements.branch.append(new Option(b.name,b.id));
+ f.elements.branch.value=p.branch_id||"";
+ f.elements.active.value=String(p.active);
+ box.append(f,button("Orqaga",employees,"secondary"));
+ f.onsubmit=async e=>{e.preventDefault();const b=f.querySelector("button");b.disabled=true;try{await rpc("manage_employee",{p_id:p.id,p_full_name:f.elements.fullname.value,p_branch_id:f.elements.branch.value,p_active:f.elements.active.value==="true"});await employees();}catch(e){el("modalMessage").textContent=e.message;}finally{b.disabled=false;}};
+}
+el("showEmployees").onclick=employees;
+
 init();
 </script>
 </body>
