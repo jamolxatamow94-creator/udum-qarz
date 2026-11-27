@@ -588,20 +588,30 @@ async function showAudit(){
 el('showAudit').onclick=showAudit;
 
 async function dailyReport(){
- const box=modal('Mening kunlik hisobotim');el('modal').classList.add('reportWide');
- const day=reportDate(), who=profile.id, root=node('div','Yuklanmoqda...');box.append(root);
+ if(!profile||admin())return;
+ const box=modal('Mening hisobotlarim');el('modal').classList.add('reportWide');
+ const who=profile.id, employee=profile.full_name, branch=profile.branchName;
+ const form=document.createElement('form');
+ form.innerHTML=`<label>Davr</label><select name="period"><option value="today">Bugun</option><option value="yesterday">Kecha</option><option value="week">Shu hafta</option><option value="month">Shu oy</option><option value="lastmonth">O‘tgan oy</option><option value="all">Barcha davr</option><option value="custom">Ixtiyoriy sana oralig‘i</option></select><div class="grid"><label>Boshlanish<input type="date" name="start" required></label><label>Tugash<input type="date" name="end" required></label></div><button class="full">Hisobotni ko‘rish</button>`;
+ const e=form.elements, run=form.querySelector('button'), root=node('div','');box.append(form,root);
+ function preset(){const t=reportDate(), all=e.period.value==='all';e.start.parentElement.parentElement.hidden=all;e.start.required=e.end.required=!all;if(all||e.period.value==='custom')return;let s=t,z=t;switch(e.period.value){case 'yesterday':s=z=shiftDay(t,-1);break;case 'week':s=shiftDay(t,-((new Date(t+'T00:00:00Z').getUTCDay()+6)%7));break;case 'month':s=t.slice(0,7)+'-01';break;case 'lastmonth':z=shiftDay(t.slice(0,7)+'-01',-1);s=z.slice(0,7)+'-01';break;}e.start.value=s;e.end.value=z;}
+ let version=0;function invalidate(){version++;root.replaceChildren();run.disabled=false;}
+ e.period.onchange=()=>{preset();invalidate();};e.start.onchange=e.end.onchange=()=>{e.period.value='custom';invalidate();};preset();
+ form.onsubmit=async ev=>{ev.preventDefault();const token=++version;run.disabled=true;root.textContent='Yuklanmoqda...';const all=e.period.value==='all',start=e.start.value,end=e.end.value,day=all?'Barcha davr':start===end?start:start+' — '+end;
  try{
+ if(!all&&(!start||!end||start>end))throw Error('Sanalar noto‘g‘ri.');
  const rows=[];
- for(let i=0;;i+=500){const {data,error}=await db.from('transactions').select('id,customer_id,branch_id,type,amount,created_at,cancelled').eq('employee_id',who).gte('created_at',day+'T00:00:00+05:00').lt('created_at',shiftDay(day,1)+'T00:00:00+05:00').order('created_at').order('id').range(i,i+499);if(error)throw error;rows.push(...data);if(data.length<500)break;}
+ for(let i=0;;i+=500){let q=db.from('transactions').select('id,customer_id,branch_id,type,amount,created_at,cancelled').eq('employee_id',who).order('created_at').order('id').range(i,i+499);if(!all)q=q.gte('created_at',start+'T00:00:00+05:00').lt('created_at',shiftDay(end,1)+'T00:00:00+05:00');const {data,error}=await q;if(error)throw error;rows.push(...data);if(data.length<500)break;}
  const [cs,bs]=await Promise.all([read('customers','id,full_name'),read('branches','id,name')]);
- if(!root.isConnected||!el('modal').open)return;
+ if(token!==version||!root.isConnected||!el('modal').open||profile?.id!==who)return;
  const cm=new Map(cs.map(c=>[c.id,c.full_name])),bm=new Map(bs.map(b=>[b.id,b.name]));
  let debt=0,paid=0,cancelled=0;for(const t of rows){if(t.cancelled)cancelled++;else if(t.type==='debt')debt+=Number(t.amount);else if(t.type==='payment')paid+=Number(t.amount);}
- const summary=[['Sana',day],['Xodim',profile.full_name],['Joriy do‘kon',profile.branchName],['Qarz',debt],['To‘lov',paid],['Sof o‘zgarish',debt-paid],['Faol operatsiyalar',rows.length-cancelled],['Bekor qilingan',cancelled]];
+ const summary=[['Davr',day],['Xodim',employee],['Joriy do‘kon',branch],['Qarz',debt],['To‘lov',paid],['Sof o‘zgarish',debt-paid],['Faol operatsiyalar',rows.length-cancelled],['Bekor qilingan',cancelled]];
  const details=[['Vaqt (Toshkent)','Mijoz','Do‘kon','Tur','Summa','Holat'],...rows.map(t=>[new Date(t.created_at).toLocaleString('ru-RU',{timeZone:'Asia/Tashkent'}),cm.get(t.customer_id)||t.customer_id,bm.get(t.branch_id)||t.branch_id,t.type==='debt'?'Qarz':'To‘lov',Number(t.amount),t.cancelled?'Bekor qilingan':'Faol'])];
- root.replaceChildren();const printable=node('div','');printable.append(node('h2','UDUM QARZ — Kunlik hisobot'),node('p',day+' | '+profile.full_name+' | '+profile.branchName+' | Toshkent vaqti'));const grid=node('div','','grid');for(const [k,v] of summary.slice(3)){const st=node('div','','stat');st.append(node('small',k),node('strong',k.includes('operatsiyalar')||k==='Bekor qilingan'?String(v):money(v)));grid.append(st);}printable.append(grid);const wrap=node('div','','reportScroll'),tab=node('table','','reportTable');details.forEach((r,i)=>{const tr=node('tr','');r.forEach(v=>tr.append(node(i?'td':'th',String(v))));tab.append(tr);});wrap.append(tab);printable.append(wrap);root.append(printable);
- root.append(button('Excel (.xlsx)',()=>{try{const w=XLSX.utils.book_new();for(const [n,a] of [['Jami',summary],['Operatsiyalar',details]])XLSX.utils.book_append_sheet(w,XLSX.utils.aoa_to_sheet(a),n);XLSX.writeFile(w,'UDUM-kunlik-'+day+'.xlsx');}catch(e){alert(e.message);}},'green full'),button('PDF / Chop etish',()=>{const p=window.open('','_blank');if(!p)return alert('Yangi oynaga ruxsat bering.');const st=p.document.createElement('style');st.textContent='body{font:12px Arial}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px}.stat strong{display:block}';p.document.head.append(st);p.document.body.append(p.document.importNode(printable,true));p.print();},'full'));
- }catch(e){root.textContent=e.message;}
+ root.replaceChildren();const printable=node('div','');printable.append(node('h2','UDUM QARZ — Shaxsiy hisobot'),node('p',day+' | '+employee+' | '+branch+' | Toshkent vaqti'));const grid=node('div','','grid');for(const [k,v] of summary.slice(3)){const st=node('div','','stat');st.append(node('small',k),node('strong',k.includes('operatsiyalar')||k==='Bekor qilingan'?String(v):money(v)));grid.append(st);}printable.append(grid);const wrap=node('div','','reportScroll'),tab=node('table','','reportTable');details.forEach((r,i)=>{const tr=node('tr','');r.forEach(v=>tr.append(node(i?'td':'th',String(v))));tab.append(tr);});wrap.append(tab);printable.append(wrap);root.append(printable);
+ root.append(button('Excel (.xlsx)',()=>{try{const w=XLSX.utils.book_new();for(const [n,a] of [['Jami',summary],['Operatsiyalar',details]])XLSX.utils.book_append_sheet(w,XLSX.utils.aoa_to_sheet(a),n);XLSX.writeFile(w,'UDUM-shaxsiy-'+(all?'barcha-davr':start+'-'+end)+'.xlsx');}catch(e){alert(e.message);}},'green full'),button('PDF / Chop etish',()=>{const p=window.open('','_blank');if(!p)return alert('Yangi oynaga ruxsat bering.');const st=p.document.createElement('style');st.textContent='body{font:12px Arial}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:6px}.stat strong{display:block}';p.document.head.append(st);p.document.body.append(p.document.importNode(printable,true));p.print();},'full'));
+ }catch(e){if(token===version)root.textContent=e.message||String(e);}finally{if(token===version)run.disabled=false;}
+ };form.requestSubmit();
 }
 init();
 </script>
