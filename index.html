@@ -617,7 +617,7 @@ async function dailyReport(){
 async function employees(){
  if(!admin())return;
  const box=modal("Xodimlar");
- box.append(button("+ Yangi xodim",newEmployee,"green full"));
+ if(profile.full_name==="Admin 2") box.append(button("+ Yangi xodim",newEmployee,"green full"));
  try{
  const list=await read("profiles","id,full_name,role,branch_id,active");
  for(const p of list){
