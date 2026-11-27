@@ -617,7 +617,7 @@ async function dailyReport(){
 async function employees(){
  if(!admin())return;
  const box=modal("Xodimlar");
- if(profile.full_name==="Admin 2") box.append(button("+ Yangi xodim",newEmployee,"green full"));
+ if(admin() && profile.id==="b60757dd-ec80-429b-bd38-18d7be5de542") box.append(button("+ Yangi xodim",newEmployee,"green full"));
  try{
  const list=await read("profiles","id,full_name,role,branch_id,active");
  for(const p of list){
@@ -641,7 +641,7 @@ function editEmployee(p){
  f.onsubmit=async e=>{e.preventDefault();const b=f.querySelector("button");b.disabled=true;try{await rpc("manage_employee",{p_id:p.id,p_full_name:f.elements.fullname.value,p_branch_id:f.elements.branch.value,p_active:f.elements.active.value==="true"});await employees();}catch(e){el("modalMessage").textContent=e.message;}finally{b.disabled=false;}};
 }
 function newEmployee(){
- if(!admin())return;
+ if(!admin() || profile.id!=="b60757dd-ec80-429b-bd38-18d7be5de542")return;
  const box=modal("Yangi xodim"),f=document.createElement("form");
  f.innerHTML=`<label>Ism familiya</label><input name="fullname" required maxlength="150"><label>Elektron pochta (login)</label><input name="email" type="email" required autocomplete="off"><label>Parol (kamida 12 belgi)</label><input name="password" type="password" minlength="12" maxlength="72" required autocomplete="new-password"><label>Do'kon</label><select name="branch" required></select><button class="full">Xodim yaratish</button>`;
  f.elements.branch.append(new Option("Tanlang",""));
