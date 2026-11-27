@@ -624,6 +624,7 @@ async function employees(){
  const row=node("div","","customer");
  row.append(node("b",p.full_name),node("p",(p.role==="admin"?"Administrator":branches.find(b=>b.id===p.branch_id)?.name||"Do'kon biriktirilmagan")+" · "+(p.active?"Faol":"Faol emas"),"muted"));
  if(p.role==="employee")row.append(button("Tahrirlash",()=>editEmployee(p),"secondary small"));
+ if(p.role==="employee" && p.active && profile.id==="b60757dd-ec80-429b-bd38-18d7be5de542"){const remove=button("Faolsizlantirish",async()=>{if(!confirm(p.full_name+" hisobini faolsizlantirasizmi? Amallar tarixi saqlanadi."))return;try{await rpc("manage_employee",{p_id:p.id,p_full_name:p.full_name,p_branch_id:p.branch_id,p_active:false});await employees();}catch(e){el("modalMessage").textContent=e.message;}},"secondary small");remove.style.color="#b91c1c";row.append(remove);}
  box.append(row);
  }
  }catch(e){el("modalMessage").textContent=e.message}
