@@ -644,7 +644,7 @@ function editEmployee(p){
 function newEmployee(){
  if(!admin() || profile.id!=="b60757dd-ec80-429b-bd38-18d7be5de542")return;
  const box=modal("Yangi xodim"),f=document.createElement("form");
- f.innerHTML=`<label>Ism familiya</label><input name="fullname" required maxlength="150"><label>Elektron pochta (login)</label><input name="email" type="email" required autocomplete="off"><label>Parol (kamida 12 belgi)</label><input name="password" type="password" minlength="12" maxlength="72" required autocomplete="new-password"><label>Do'kon</label><select name="branch" required></select><button class="full">Xodim yaratish</button>`;
+ f.innerHTML=`<label>Ism familiya</label><input name="fullname" required maxlength="150"><label>Elektron pochta (login)</label><input name="email" type="email" required autocomplete="off"><label>Parol (kamida 6 belgi)</label><input name="password" type="password" minlength="6" maxlength="72" required autocomplete="new-password"><label>Do'kon</label><select name="branch" required></select><button class="full">Xodim yaratish</button>`;
  f.elements.branch.append(new Option("Tanlang",""));
  for(const b of branches)f.elements.branch.append(new Option(b.name,b.id));
  box.append(f,button("Orqaga",employees,"secondary"));
