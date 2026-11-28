@@ -44,6 +44,7 @@ dialog::backdrop{background:#0007}
 #message{white-space:pre-wrap;overflow-wrap:anywhere}
 footer{text-align:center;color:#718586;padding:20px;font-size:13px}
 .auditDetail{background:#f3f8f8;border-radius:10px;padding:12px;margin-top:8px;cursor:default}.auditDetail summary{cursor:pointer;font-weight:bold;color:#087f8c}.auditSection{margin-top:12px}.auditSection h4{margin:0 0 6px;color:#345b91}.auditField{display:grid;grid-template-columns:minmax(90px,1fr) minmax(0,1.5fr);gap:8px;padding:6px 0;border-bottom:1px solid #dce8e8;font-size:13px}.auditField span:last-child{white-space:pre-wrap;overflow-wrap:anywhere;text-align:right;font-weight:600}
+.payment-choice{border:0;padding:0;margin:10px 0 5px;min-width:0}.payment-choice legend{padding:0;margin-bottom:6px}.payment-choice label{position:relative;display:block;cursor:pointer}.payment-choice input{position:absolute;opacity:0;width:1px;height:1px;margin:0;padding:0}.payment-choice span{display:block;text-align:center;padding:13px 8px;border:2px solid #ccd8d8;border-radius:9px;background:#f3f8f8;font-weight:bold;color:#183638}.payment-choice input:checked+span{background:#198754;border-color:#198754;color:white}.payment-choice .click-choice input:checked+span{background:#1688dc;border-color:#1688dc}.payment-choice input:focus-visible+span{outline:3px solid #183638;outline-offset:2px}
 </style>
 </head>
 <body>
@@ -344,10 +345,10 @@ function transaction(c,type){
  <select name="branch" required></select>
  <label>Summa (so'm)</label>
  <input name="amount" type="number" min="1" step="1" required>
- ${type==="payment"?`<label>To‘lov usuli</label><select name="payment_method" required><option value="">Tanlang</option><option value="cash">Naqd</option><option value="click">CLICK</option></select>`:""}
  <label>Izoh</label>
  <textarea name="note"></textarea>
  ${type==="debt"?`<label>To‘lov muddati (ixtiyoriy)</label><input name="due" type="date">`:""}
+ ${type==="payment"?`<fieldset class="payment-choice"><legend>To‘lov usuli</legend><div class="grid"><label class="cash-choice"><input type="radio" name="payment_method" value="cash" required><span>Naqd</span></label><label class="click-choice"><input type="radio" name="payment_method" value="click" required><span>CLICK</span></label></div></fieldset>`:""}
  <button class="full">Saqlash</button>`;
  const select=form.elements.branch;
  if(admin()){
