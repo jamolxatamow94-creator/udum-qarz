@@ -300,8 +300,8 @@ async function showCustomer(id){
  if(admin()&&c.archived){
  actions.append(button("Arxivdan qaytarish",()=>changeArchive(c,false),"green"));
  box.append(node("p","Arxivlangan mijoz","muted"));
- }else if(admin()){
- actions.append(button("Tahrirlash",()=>editCustomer(c),"secondary"));
+ }else if(!c.archived){
+ if(admin())actions.append(button("Tahrirlash",()=>editCustomer(c),"secondary"));
  const archiveButton=button("Arxivlash",()=>changeArchive(c,true),"secondary");
  archiveButton.disabled=Number(c.balance)!==0;
  actions.append(archiveButton);
