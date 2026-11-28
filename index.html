@@ -45,6 +45,7 @@ dialog::backdrop{background:#0007}
 footer{text-align:center;color:#718586;padding:20px;font-size:13px}
 .auditDetail{background:#f3f8f8;border-radius:10px;padding:12px;margin-top:8px;cursor:default}.auditDetail summary{cursor:pointer;font-weight:bold;color:#087f8c}.auditSection{margin-top:12px}.auditSection h4{margin:0 0 6px;color:#345b91}.auditField{display:grid;grid-template-columns:minmax(90px,1fr) minmax(0,1.5fr);gap:8px;padding:6px 0;border-bottom:1px solid #dce8e8;font-size:13px}.auditField span:last-child{white-space:pre-wrap;overflow-wrap:anywhere;text-align:right;font-weight:600}
 .payment-choice{border:0;padding:0;margin:10px 0 5px;min-width:0}.payment-choice legend{padding:0;margin-bottom:6px}.payment-choice label{position:relative;display:block;cursor:pointer}.payment-choice input{position:absolute;opacity:0;width:1px;height:1px;margin:0;padding:0}.payment-choice span{display:block;text-align:center;padding:13px 8px;border:2px solid #ccd8d8;border-radius:9px;background:#f3f8f8;font-weight:bold;color:#183638}.payment-choice input:checked+span{background:#198754;border-color:#198754;color:white}.payment-choice .click-choice input:checked+span{background:#1688dc;border-color:#1688dc}.payment-choice input:focus-visible+span{outline:3px solid #183638;outline-offset:2px}
+#debtTab{background:#087f8c;color:#fff}#expenseTab{background:#c65309;color:#fff}#debtTab,#expenseTab{font-weight:700;border:2px solid transparent;box-shadow:none}#debtTab[aria-pressed="true"],#expenseTab[aria-pressed="true"]{box-shadow:0 0 0 2px white,0 0 0 4px #52696b}#debtTab[aria-pressed="false"],#expenseTab[aria-pressed="false"]{opacity:.85}#debtTab:focus-visible,#expenseTab:focus-visible{outline:3px solid #183638;outline-offset:3px}
 </style>
 </head>
 <body>
@@ -70,7 +71,7 @@ footer{text-align:center;color:#718586;padding:20px;font-size:13px}
 <button id="refresh" class="small secondary" type="button">Yangilash</button>
 </div>
 <p id="refreshStatus" class="muted" role="status" aria-live="polite" style="margin:0 0 10px;text-align:right"></p>
-<div class="grid" style="margin-bottom:12px"><button id="debtTab" type="button">Qarzdorlik</button><button id="expenseTab" type="button" class="secondary">Xarajatlar</button></div>
+<div class="grid" style="margin-bottom:12px"><button id="debtTab" type="button" aria-pressed="true">Qarzdorlik</button><button id="expenseTab" type="button" aria-pressed="false">Xarajatlar</button></div>
 <div id="debtPanel">
 <div class="grid">
 <div class="stat total">
@@ -726,8 +727,8 @@ async function loadExpenses(){
  panel.replaceChildren(stats,actions,card);el("refreshStatus").textContent="Oxirgi yangilanish: "+expDate(new Date());return true;
  }catch(e){if(v===expenseGeneration)panel.replaceChildren(node("p",e.message||String(e),"red"));return false;}
 }
-el("debtTab").onclick=()=>{expenseGeneration++;el("debtPanel").hidden=false;el("expensePanel").hidden=true;el("debtTab").className="";el("expenseTab").className="secondary";load();};
-el("expenseTab").onclick=()=>{el("debtPanel").hidden=true;el("expensePanel").hidden=false;el("debtTab").className="secondary";el("expenseTab").className="";loadExpenses();};
+el("debtTab").onclick=()=>{expenseGeneration++;el("debtPanel").hidden=false;el("expensePanel").hidden=true;el("debtTab").setAttribute("aria-pressed","true");el("expenseTab").setAttribute("aria-pressed","false");load();};
+el("expenseTab").onclick=()=>{el("debtPanel").hidden=true;el("expensePanel").hidden=false;el("debtTab").setAttribute("aria-pressed","false");el("expenseTab").setAttribute("aria-pressed","true");loadExpenses();};
 async function newExpense(){
  const box=modal("Yangi xarajat"),root=node("div","Yuklanmoqda...");box.append(root);
  try{const [cats,subs]=await expenseCatalog();if(!root.isConnected)return;
