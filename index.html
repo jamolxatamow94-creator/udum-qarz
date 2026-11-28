@@ -72,7 +72,6 @@ footer{text-align:center;color:#718586;padding:20px;font-size:13px}
 </div>
 <p id="refreshStatus" class="muted" role="status" aria-live="polite" style="margin:0 0 10px;text-align:right"></p>
 <div class="grid" style="margin-bottom:12px"><button id="debtTab" type="button" aria-pressed="true">Qarzdorlik</button><button id="expenseTab" type="button" aria-pressed="false">Xarajatlar</button></div>
-<button id="cashflowButton" type="button" class="full" style="background:#345b91;margin-bottom:14px" hidden>Kirim-chiqim hisoboti</button>
 <div id="debtPanel">
 <div class="grid">
 <div class="stat total">
@@ -182,7 +181,7 @@ async function checkUser(user){
  profile.branchName=b.name;
  }
  el("welcome").textContent=data.full_name+(admin()?" · Admin":" · "+profile.branchName);
- for(const id of ["showBranches","archiveList","showEmployees","cashflowButton"])el(id).hidden=!admin();
+ for(const id of ["showBranches","archiveList","showEmployees"])el(id).hidden=!admin();
  el("showReports").textContent="Hisobotlar";
  el("showAudit").style.gridColumn=admin()?"":"1 / -1";
  el("showReports").onclick=admin()?reportMenu:dailyReport;
@@ -776,44 +775,7 @@ async function expenseReport(){
 }
 
 
-function flowTotals(payments,expenses){
- const totals={cash:[0,0],click:[0,0],unknown:[0,0]};
- for(const t of payments)if(!t.cancelled&&t.type==="payment"){const k=t.payment_method==="cash"?"cash":t.payment_method==="click"?"click":"unknown";totals[k][0]+=Number(t.amount);}
- for(const x of expenses)if(!x.cancelled){const k=x.payment_method==="cash"?"cash":x.payment_method==="click"?"click":"unknown";totals[k][1]+=Number(x.amount);}
- return totals;
-}
-async function cashflowPayments(a,b,branch,employee,method){
- const rows=[];for(let i=0;;i+=500){let q=db.from("transactions").select("id,customer_id,branch_id,employee_id,type,amount,payment_method,created_at,cancelled,cancel_reason").eq("type","payment").order("created_at").order("id").range(i,i+499);
- if(a)q=q.gte("created_at",a+"T00:00:00+05:00");if(b)q=q.lt("created_at",shiftDay(b,1)+"T00:00:00+05:00");if(branch)q=q.eq("branch_id",branch);if(employee)q=q.eq("employee_id",employee);if(method)q=method==="unknown"?q.is("payment_method",null):q.eq("payment_method",method);
- const {data,error}=await q;if(error)throw error;rows.push(...data);if(data.length<500)return rows;}
-}
-async function cashflowReport(){
- if(!admin())return;
- const box=modal("Kirim-chiqim hisoboti");el("modal").classList.add("reportWide");const root=node("div","Yuklanmoqda...");box.append(root);
- try{const [bs,ps,cs]=await Promise.all([read("branches","id,name"),read("profiles","id,full_name"),read("customers","id,full_name")]);if(!root.isConnected||!admin())return;
- const bm=new Map(bs.map(x=>[x.id,x.name])),pm=new Map(ps.map(x=>[x.id,x.full_name])),cm=new Map(cs.map(x=>[x.id,x.full_name]));
- const f=document.createElement("form");f.innerHTML='<label>Davr</label><select name="period"><option value="today">Bugun</option><option value="yesterday">Kecha</option><option value="week">Shu hafta</option><option value="month">Shu oy</option><option value="lastmonth">O‘tgan oy</option><option value="year">Shu yil</option><option value="all">Barcha davr</option><option value="custom">Ixtiyoriy</option></select><div class="grid"><label>Boshlanish<input name="start" type="date" required></label><label>Tugash<input name="end" type="date" required></label></div><label>Do‘kon</label><select name="branch"><option value="">Barcha do‘konlar</option></select><label>Xodim / admin</label><select name="employee"><option value="">Barchasi</option></select><label>To‘lov usuli</label><select name="method"><option value="">Umumiy (barchasi)</option><option value="cash">Naqd</option><option value="click">CLICK</option><option value="unknown">Belgilanmagan (eski to‘lovlar)</option></select><button class="full">Hisobotni ko‘rish</button>';
- const e=f.elements,run=f.querySelector("button"),out=node("div","");bs.forEach(x=>e.branch.append(new Option(x.name,x.id)));ps.forEach(x=>e.employee.append(new Option(x.full_name,x.id)));root.replaceChildren(f,out);
- function preset(){const t=reportDate(),p=e.period.value,all=p==="all";e.start.parentElement.parentElement.hidden=all;e.start.required=e.end.required=!all;if(all||p==="custom")return;let a=t,b=t;if(p==="yesterday")a=b=shiftDay(t,-1);if(p==="week")a=shiftDay(t,-((new Date(t+"T00:00:00Z").getUTCDay()+6)%7));if(p==="month")a=t.slice(0,7)+"-01";if(p==="lastmonth"){b=shiftDay(t.slice(0,7)+"-01",-1);a=b.slice(0,7)+"-01";}if(p==="year")a=t.slice(0,4)+"-01-01";e.start.value=a;e.end.value=b;}
- e.period.onchange=preset;e.start.onchange=e.end.onchange=()=>e.period.value="custom";preset();
- let ver=0;f.onchange=()=>{ver++;out.replaceChildren();run.disabled=false;};
- f.onsubmit=async ev=>{ev.preventDefault();const v=++ver;run.disabled=true;out.textContent="Yuklanmoqda...";
- try{const all=e.period.value==="all",a=all?null:e.start.value,b=all?null:e.end.value,branch=e.branch.value,employee=e.employee.value,method=e.method.value;if(!all&&(!a||!b||a>b))throw Error("Sanalarni tekshiring");
- const [pay,exp]=await Promise.all([cashflowPayments(a,b,branch,employee,method),method==="unknown"?Promise.resolve([]):expenseRows(a,b,{branch_id:branch,employee_id:employee,payment_method:method})]);if(v!==ver||!out.isConnected||!admin())return;
- const totals=flowTotals(pay,exp),keys=method?[method]:["cash","click","unknown"],label=k=>({cash:"Naqd",click:"CLICK",unknown:"Belgilanmagan"})[k];
- const inc=keys.reduce((sum,k)=>sum+totals[k][0],0),cost=keys.reduce((sum,k)=>sum+totals[k][1],0);
- const summary=[["Davr",all?"Barcha davr":a+" — "+b],["Do‘kon",bm.get(branch)||"Barchasi"],["Xodim / admin",pm.get(employee)||"Barchasi"],["To‘lov usuli",method?label(method):"Umumiy"],["Qarzdan tushgan to‘lov",inc],["Xarajatlar",cost],["Sof pul o‘zgarishi",inc-cost],["Bekor qilingan to‘lovlar",pay.filter(x=>x.cancelled).length],["Bekor qilingan xarajatlar",exp.filter(x=>x.cancelled).length]];
- const split=[["To‘lov usuli","Kirim","Chiqim","Sof o‘zgarish"],...keys.map(k=>[label(k),totals[k][0],totals[k][1],totals[k][0]-totals[k][1]]),["Jami",inc,cost,inc-cost]];
- const ids=[...new Set([...pay,...exp].map(x=>x.branch_id))];const branchesTable=[["Do‘kon","Naqd kirim","Naqd chiqim","CLICK kirim","CLICK chiqim","Belgilanmagan kirim","Jami kirim","Jami chiqim","Sof o‘zgarish"],...ids.map(id=>{const x=flowTotals(pay.filter(t=>t.branch_id===id),exp.filter(t=>t.branch_id===id)),i=x.cash[0]+x.click[0]+x.unknown[0],o=x.cash[1]+x.click[1]+x.unknown[1];return [bm.get(id)||id,...x.cash,...x.click,x.unknown[0],i,o,i-o]})];
- const details=[["Sana (Toshkent)","Do‘kon","Xodim / admin","Tur","Mijoz yoki kategoriya","Summa","To‘lov usuli","Kommentariya","Holat","Bekor qilish sababi"],...[...pay.map(x=>({...x,kind:"Kirim",description:cm.get(x.customer_id)||x.customer_id,comment:""})),...exp.map(x=>({...x,kind:"Chiqim",description:x.category_name+(x.subcategory_name?" / "+x.subcategory_name:"")}))].sort((x,y)=>Date.parse(y.created_at)-Date.parse(x.created_at)).map(x=>[expDate(x.created_at),bm.get(x.branch_id)||"",pm.get(x.employee_id)||"",x.kind,x.description,Number(x.amount),label(x.payment_method==="cash"?"cash":x.payment_method==="click"?"click":"unknown"),x.comment||"",x.cancelled?"Bekor qilingan":"Faol",x.cancel_reason||""])];
- function tab(a){const w=node("div","","reportScroll"),t=node("table","","reportTable");a.forEach((r,i)=>{const tr=node("tr","");r.forEach(x=>tr.append(node(i?"td":"th",String(x??""))));t.append(tr);});w.append(t);return w;}
- const print=node("div",""),grid=node("div","","grid");print.append(node("h2","UDUM — Kirim-chiqim hisoboti"),node("p",summary.slice(0,4).map(x=>x.join(": ")).join(" | ")),node("p","Faqat qarzdan tushgan to‘lovlar va xarajatlar. Bu to‘liq kassa qoldig‘i yoki foyda emas. Bekor qilingan amallar jami summaga kirmaydi.","muted"));for(const [k,val] of summary.slice(4,7))grid.append(expenseStat(k,money(val)));print.append(grid,node("h3","To‘lov usullari kesimida"),tab(split),node("h3","Do‘konlar kesimida"),tab(branchesTable),node("h3","Operatsiyalar"),tab(details));out.replaceChildren(print);
- out.append(button("Excel (.xlsx)",()=>{try{const w=XLSX.utils.book_new();for(const [n,t] of [["Jami",summary],["Naqd va CLICK",split],["Dokonlar",branchesTable],["Operatsiyalar",details]])XLSX.utils.book_append_sheet(w,XLSX.utils.aoa_to_sheet(t),n);XLSX.writeFile(w,"UDUM-kirim-chiqim.xlsx");}catch(e){alert(e.message);}},"green full"),button("PDF / Chop etish",()=>{const p=window.open("","_blank");if(!p)return alert("Yangi oynaga ruxsat bering");const st=p.document.createElement("style");st.textContent="body{font:12px Arial}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ccc;padding:5px;overflow-wrap:anywhere}.stat strong{display:block}@page{size:A4 landscape;margin:12mm}";p.document.head.append(st);p.document.body.append(p.document.importNode(print,true));p.print();},"full"));
- }catch(err){if(v===ver)out.textContent=err.message;}finally{if(v===ver)run.disabled=false;}};
- f.requestSubmit();
- }catch(err){root.textContent=err.message;}
-}
-el("cashflowButton").onclick=cashflowReport;
+
 
 init();
 </script>
