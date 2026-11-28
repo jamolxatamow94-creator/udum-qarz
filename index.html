@@ -67,8 +67,9 @@ footer{text-align:center;color:#718586;padding:20px;font-size:13px}
 <section id="dashboard" hidden>
 <div class="line">
 <h3 id="welcome"></h3>
-<button id="refresh" class="small secondary">Yangilash</button>
+<button id="refresh" class="small secondary" type="button">Yangilash</button>
 </div>
+<p id="refreshStatus" class="muted" role="status" aria-live="polite" style="margin:0 0 10px;text-align:right"></p>
 <div class="grid">
 <div class="stat total">
 <small>Qarz qoldig'i</small>
@@ -228,7 +229,9 @@ async function load(){
  }
  el("count").textContent=customers.length;
  renderCustomers();
- }catch(e){errorMessage(e)}
+ el("refreshStatus").textContent="Oxirgi yangilanish: "+new Date().toLocaleString("ru-RU",{timeZone:"Asia/Tashkent"});
+ return true;
+ }catch(e){errorMessage(e);return false;}
 }
 function renderCustomers(){
  const q=el("search").value.trim().toLowerCase();
@@ -250,7 +253,13 @@ function renderCustomers(){
 }
 el("archiveList").onclick=()=>{archiveMode=!archiveMode;el("archiveList").textContent=archiveMode?"Faol mijozlar":`Arxiv (${archivedCustomers.length})`;renderCustomers();};
 el("search").oninput=renderCustomers;
-el("refresh").onclick=load;
+el("refresh").onclick=async()=>{
+ const b=el("refresh"),status=el("refreshStatus");
+ if(b.disabled)return;
+ b.disabled=true;b.textContent="Yangilanmoqda...";status.textContent="Ma’lumotlar serverdan olinmoqda...";
+ try{const ok=await load();if(ok){b.textContent="Yangilandi ✓";}else{b.textContent="Qayta urinish";status.textContent="Yangilashda xatolik. Internetni tekshirib qayta urinib ko‘ring.";}}
+ catch(e){errorMessage(e);b.textContent="Qayta urinish";status.textContent="Yangilashda xatolik.";}finally{b.disabled=false;}
+};
 el("closeModal").onclick=()=>el("modal").close();
 el("showBranches").onclick=()=>{
  const box=modal("Do'konlar");
