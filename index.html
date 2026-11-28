@@ -265,11 +265,35 @@ el("refresh").onclick=async()=>{
  catch(e){errorMessage(e);b.textContent="Qayta urinish";status.textContent="Yangilashda xatolik.";}finally{b.disabled=false;}
 };
 el("closeModal").onclick=()=>el("modal").close();
-el("showBranches").onclick=()=>{
- const box=modal("Do'konlar");
- for(const b of branches)box.append(node("p",b.name));
- if(!branches.length)box.append(node("p","Faol do'kon topilmadi."));
-};
+const canManageBranches=()=>admin()&&profile.id==="b60757dd-ec80-429b-bd38-18d7be5de542";
+async function showBranches(){
+ if(!admin())return;
+ const box=modal("Do‘konlar"),root=node("div","Yuklanmoqda...");box.append(root);
+ try{
+ const [list,ps]=await Promise.all([read("branches","id,name,active"),read("profiles","id,branch_id,active")]);if(!root.isConnected)return;
+ branches=list.filter(b=>b.active);root.replaceChildren();
+ if(canManageBranches())root.append(button("+ Yangi do‘kon",newBranch,"green full"),node("p","Faolsizlantirilgan do‘konning oldingi hisobotlari saqlanadi. Avval faol xodimlarni boshqa do‘konga o‘tkazing.","muted"));
+ for(const active of [true,false]){
+ const group=list.filter(b=>b.active===active).sort((a,b)=>a.name.localeCompare(b.name));if(!group.length)continue;
+ root.append(node("h3",active?"Faol do‘konlar":"Faol bo‘lmagan do‘konlar"));
+ for(const b of group){const row=node("div","","customer");const count=ps.filter(p=>p.active&&p.branch_id===b.id).length;
+ row.append(node("b",b.name),node("p",(active?"Faol":"Faol emas")+" · Faol xodimlar: "+count,"muted"));
+ if(canManageBranches()){const change=button(active?"Faolsizlantirish":"Qayta faollashtirish",async()=>{
+ if(!confirm(b.name+(active?" faolsizlantirilsinmi? Tarix saqlanadi.":" qayta faollashtirilsinmi?")))return;
+ change.disabled=true;try{await rpc("set_branch_active",{p_id:b.id,p_active:!active});await load();await showBranches();}catch(e){el("modalMessage").textContent=e.message||String(e);}finally{change.disabled=false;}
+ },"secondary small");if(active)change.style.color="#b91c1c";row.append(change);}
+ root.append(row);}
+ }
+ if(!list.length)root.append(node("p","Do‘konlar topilmadi.","muted"));
+ }catch(e){root.textContent=e.message||String(e);}
+}
+function newBranch(){
+ if(!canManageBranches())return;
+ const box=modal("Yangi do‘kon"),f=document.createElement("form");f.innerHTML='<label>Do‘kon nomi</label><input name="name" required maxlength="150" placeholder="Masalan, 5-dokon"><button class="full green">Saqlash</button>';
+ box.append(f,button("Orqaga",showBranches,"secondary"));
+ f.onsubmit=async ev=>{ev.preventDefault();const btn=f.querySelector("button");btn.disabled=true;try{await rpc("add_branch",{p_name:f.elements.name.value.trim()});await load();await showBranches();}catch(e){el("modalMessage").textContent=e.message||String(e);}finally{btn.disabled=false;}};
+}
+el("showBranches").onclick=showBranches;
 el("newCustomer").onclick=()=>{
  const box=modal("Yangi mijoz");
  box.innerHTML=`
@@ -590,7 +614,7 @@ function customerReport(initial){
 el('showReports').onclick=reportMenu;
 
 
-function auditLabel(t){const a=String(t.action||'').toUpperCase(),o=t.old_data||{},n=t.new_data||{},create=['CREATE','INSERT'].includes(a);if(t.table_name==='expenses')return a==='CANCEL'?'Xarajat bekor qilindi':'Xarajat kiritildi';if(['expense_categories','expense_subcategories'].includes(t.table_name))return (t.table_name==='expense_categories'?'Kategoriya':'Podkategoriya')+(create?' qo‘shildi':n.active===false?' faolsizlantirildi':' yangilandi');if(t.table_name==='profiles'){if(a==='PASSWORD_RESET')return 'Xodim paroli almashtirildi';if(create)return 'Yangi xodim yaratildi';if(a==='UPDATE'){if(o.active!==n.active&&typeof n.active==='boolean')return n.active?'Xodim qayta faollashtirildi':'Xodim faolsizlantirildi';return 'Xodim ma’lumotlari o‘zgartirildi';}}if(t.table_name==='customers'){if(create)return 'Yangi mijoz qo‘shildi';if(a==='UPDATE'){if(o.archived!==n.archived&&typeof n.archived==='boolean')return n.archived?'Mijoz arxivlandi':'Mijoz tiklandi';return 'Mijoz tahrirlandi';}}if(t.table_name==='transactions'){if((n.cancelled===true&&o.cancelled!==true)||a.includes('CANCEL'))return 'Operatsiya bekor qilindi';if(create)return n.type==='debt'?'Qarz yozildi':n.type==='payment'?'To‘lov olindi':'Operatsiya qo‘shildi';}if(t.table_name==='attachments'){if(a.includes('CONFIRM')||a==='UPDATE')return 'Chek ma’lumoti yangilandi';if(create||a.includes('PREPARE'))return 'Chek biriktirish boshlandi';}return t.table_name+' — '+a;}
+function auditLabel(t){const a=String(t.action||'').toUpperCase(),o=t.old_data||{},n=t.new_data||{},create=['CREATE','INSERT'].includes(a);if(t.table_name==='branches')return create?'Yangi do‘kon qo‘shildi':n.active===true?'Do‘kon qayta faollashtirildi':'Do‘kon faolsizlantirildi';if(t.table_name==='expenses')return a==='CANCEL'?'Xarajat bekor qilindi':'Xarajat kiritildi';if(['expense_categories','expense_subcategories'].includes(t.table_name))return (t.table_name==='expense_categories'?'Kategoriya':'Podkategoriya')+(create?' qo‘shildi':n.active===false?' faolsizlantirildi':' yangilandi');if(t.table_name==='profiles'){if(a==='PASSWORD_RESET')return 'Xodim paroli almashtirildi';if(create)return 'Yangi xodim yaratildi';if(a==='UPDATE'){if(o.active!==n.active&&typeof n.active==='boolean')return n.active?'Xodim qayta faollashtirildi':'Xodim faolsizlantirildi';return 'Xodim ma’lumotlari o‘zgartirildi';}}if(t.table_name==='customers'){if(create)return 'Yangi mijoz qo‘shildi';if(a==='UPDATE'){if(o.archived!==n.archived&&typeof n.archived==='boolean')return n.archived?'Mijoz arxivlandi':'Mijoz tiklandi';return 'Mijoz tahrirlandi';}}if(t.table_name==='transactions'){if((n.cancelled===true&&o.cancelled!==true)||a.includes('CANCEL'))return 'Operatsiya bekor qilindi';if(create)return n.type==='debt'?'Qarz yozildi':n.type==='payment'?'To‘lov olindi':'Operatsiya qo‘shildi';}if(t.table_name==='attachments'){if(a.includes('CONFIRM')||a==='UPDATE')return 'Chek ma’lumoti yangilandi';if(create||a.includes('PREPARE'))return 'Chek biriktirish boshlandi';}return t.table_name+' — '+a;}
 function auditFields(data,pm,cm,bm){
  if(!data||typeof data!=='object')return [];
  const fields=[['full_name','Ism familiya'],['name','Nomi'],['category_name','Kategoriya'],['subcategory_name','Podkategoriya'],['comment','Kommentariya'],['customer_id','Mijoz'],['phone','Telefon'],['type','Operatsiya'],['amount','Summa'],['payment_method','To‘lov usuli'],['branch_id','Do‘kon'],['employee_id','Mas’ul xodim'],['note','Izoh'],['due_date','To‘lov muddati'],['created_at','Yaratilgan vaqt'],['updated_at','Yangilangan vaqt'],['cancelled','Holati'],['cancelled_by','Bekor qilgan xodim'],['cancelled_at','Bekor qilingan vaqt'],['cancel_reason','Bekor qilish sababi'],['archived','Arxiv holati'],['file_name','Chek fayli'],['confirmed','Chek tasdiqlangan'],['confirmed_at','Tasdiqlangan vaqt'],['active','Faollik']];
